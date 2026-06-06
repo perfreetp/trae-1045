@@ -25,11 +25,11 @@
                 <el-button @click="handleReset">重置</el-button>
               </el-form-item>
             </el-form>
-            <el-button type="success" @click="showCreateDialog = true">
+            <el-button type="success" @click="openCreateDialog">
               <el-icon><Plus /></el-icon>登记投诉
             </el-button>
           </div>
-          <el-table :data="complaints" border stripe>
+          <el-table :data="filteredComplaints" border stripe>
             <el-table-column type="index" label="序号" width="60" />
             <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
             <el-table-column prop="complainant" label="投诉人" width="100" />
@@ -41,7 +41,7 @@
                 <el-tag :type="statusType(row.status)" size="small">{{ row.status }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="200" fixed="right">
+            <el-table-column label="操作" width="280" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click="handleView(row)">查看</el-button>
                 <el-button link type="primary" size="small" @click="handleProcess(row)">处理</el-button>
@@ -53,7 +53,7 @@
 
         <el-tab-pane label="复议诉讼登记" name="litigation">
           <div class="toolbar">
-            <el-button type="success" @click="showLitigationDialog = true">
+            <el-button type="success" @click="openLitigationDialog">
               <el-icon><Plus /></el-icon>新增登记
             </el-button>
           </div>
@@ -74,10 +74,10 @@
                 <el-tag size="small">{{ row.status }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="150">
+            <el-table-column label="操作" width="220">
               <template #default="{ row }">
-                <el-button link type="primary" size="small">详情</el-button>
-                <el-button link type="primary" size="small">更新状态</el-button>
+                <el-button link type="primary" size="small" @click="handleViewLitigation(row)">详情</el-button>
+                <el-button link type="primary" size="small" @click="handleUpdateLitigationStatus(row)">更新状态</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -120,6 +120,9 @@
         <el-form-item label="联系方式">
           <el-input v-model="complaintForm.contact" placeholder="请输入联系电话" />
         </el-form-item>
+        <el-form-item label="经办人">
+          <el-input v-model="complaintForm.handler" placeholder="请输入经办人" />
+        </el-form-item>
         <el-form-item label="投诉内容">
           <el-input v-model="complaintForm.content" type="textarea" :rows="5" placeholder="请详细描述投诉内容" />
         </el-form-item>
@@ -141,13 +144,34 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="showViewDialog" title="投诉详情" width="700px">
+      <el-descriptions :column="2" border v-if="currentComplaint">
+        <el-descriptions-item label="标题" :span="2">{{ currentComplaint.title }}</el-descriptions-item>
+        <el-descriptions-item label="类型">{{ currentComplaint.type }}</el-descriptions-item>
+        <el-descriptions-item label="状态">
+          <el-tag :type="statusType(currentComplaint.status)">{{ currentComplaint.status }}</el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="投诉人">{{ currentComplaint.complainant }}</el-descriptions-item>
+        <el-descriptions-item label="经办人">{{ currentComplaint.handler }}</el-descriptions-item>
+        <el-descriptions-item label="登记时间">{{ currentComplaint.createTime }}</el-descriptions-item>
+        <el-descriptions-item label="联系方式">{{ currentComplaint.contact || '无' }}</el-descriptions-item>
+        <el-descriptions-item label="投诉内容" :span="2">{{ currentComplaint.content }}</el-descriptions-item>
+      </el-descriptions>
+    </el-dialog>
+
     <el-dialog v-model="showProcessDialog" title="处理投诉" width="600px">
+      <el-descriptions :column="1" border size="small" style="margin-bottom: 20px" v-if="currentComplaint">
+        <el-descriptions-item label="当前投诉">{{ currentComplaint.title }}</el-descriptions-item>
+        <el-descriptions-item label="当前状态">
+          <el-tag :type="statusType(currentComplaint.status)">{{ currentComplaint.status }}</el-tag>
+        </el-descriptions-item>
+      </el-descriptions>
       <el-form :model="processForm" label-width="100px">
         <el-form-item label="处理状态">
           <el-select v-model="processForm.status" style="width: 100%">
-            <el-option label="受理中" value="受理中" />
-            <el-option label="调查核实中" value="调查核实中" />
-            <el-option label="已处理完成" value="已办结" />
+            <el-option label="已受理" value="已受理" />
+            <el-option label="处理中" value="处理中" />
+            <el-option label="已办结" value="已办结" />
           </el-select>
         </el-form-item>
         <el-form-item label="处理意见">
@@ -165,29 +189,146 @@
         <el-button type="primary" @click="handleSubmitProcess">提交</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="showTransferDialog" title="转办投诉" width="500px">
+      <el-descriptions :column="1" border size="small" style="margin-bottom: 20px" v-if="currentComplaint">
+        <el-descriptions-item label="当前投诉">{{ currentComplaint.title }}</el-descriptions-item>
+      </el-descriptions>
+      <el-form :model="transferForm" label-width="100px">
+        <el-form-item label="转办至">
+          <el-select v-model="transferForm.toDept" style="width: 100%" placeholder="请选择部门">
+            <el-option label="市场监管局" value="市场监管局" />
+            <el-option label="环保局" value="环保局" />
+            <el-option label="住建局" value="住建局" />
+            <el-option label="交通局" value="交通局" />
+            <el-option label="公安局" value="公安局" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="转办说明">
+          <el-input v-model="transferForm.remark" type="textarea" :rows="3" placeholder="请输入转办说明" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showTransferDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleSubmitTransfer">确认转办</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="showLitigationDialog" title="新增复议诉讼登记" width="700px">
+      <el-form :model="litigationForm" label-width="120px">
+        <el-form-item label="类型">
+          <el-radio-group v-model="litigationForm.type">
+            <el-radio label="行政复议">行政复议</el-radio>
+            <el-radio label="行政诉讼">行政诉讼</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="关联案件">
+          <el-select v-model="litigationForm.caseId" placeholder="请选择案件" style="width: 100%">
+            <el-option label="AJ202606001 某超市销售过期食品案" value="AJ202606001" />
+            <el-option label="AJ202606002 某企业违法排放污水案" value="AJ202606002" />
+            <el-option label="AJ202605089 某公司未经许可经营" value="AJ202605089" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="案件名称">
+          <el-input v-model="litigationForm.caseTitle" placeholder="请输入案件名称" />
+        </el-form-item>
+        <el-form-item label="申请人/原告">
+          <el-input v-model="litigationForm.applicant" placeholder="请输入申请人或原告" />
+        </el-form-item>
+        <el-form-item label="受理日期">
+          <el-date-picker v-model="litigationForm.acceptDate" type="date" style="width: 100%" value-format="YYYY-MM-DD" />
+        </el-form-item>
+        <el-form-item label="当前状态">
+          <el-select v-model="litigationForm.status" style="width: 100%">
+            <el-option label="已受理" value="已受理" />
+            <el-option label="审理中" value="审理中" />
+            <el-option label="已开庭" value="已开庭" />
+            <el-option label="已判决" value="已判决" />
+            <el-option label="已结案" value="已结案" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="备注说明">
+          <el-input v-model="litigationForm.remark" type="textarea" :rows="3" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showLitigationDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleCreateLitigation">提交登记</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="showLitigationViewDialog" title="复议诉讼详情" width="700px">
+      <el-descriptions :column="2" border v-if="currentLitigation">
+        <el-descriptions-item label="类型">
+          <el-tag :type="currentLitigation.type === '行政复议' ? 'primary' : 'warning'">{{ currentLitigation.type }}</el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="状态">{{ currentLitigation.status }}</el-descriptions-item>
+        <el-descriptions-item label="关联案件">{{ currentLitigation.caseId }}</el-descriptions-item>
+        <el-descriptions-item label="申请人/原告">{{ currentLitigation.applicant }}</el-descriptions-item>
+        <el-descriptions-item label="案件名称" :span="2">{{ currentLitigation.caseTitle }}</el-descriptions-item>
+        <el-descriptions-item label="受理日期">{{ currentLitigation.acceptDate }}</el-descriptions-item>
+        <el-descriptions-item label="备注说明" :span="2">{{ currentLitigation.remark || '无' }}</el-descriptions-item>
+      </el-descriptions>
+    </el-dialog>
+
+    <el-dialog v-model="showUpdateStatusDialog" title="更新状态" width="500px">
+      <el-descriptions :column="1" border size="small" style="margin-bottom: 20px" v-if="currentLitigation">
+        <el-descriptions-item label="案件">{{ currentLitigation.caseTitle }}</el-descriptions-item>
+        <el-descriptions-item label="当前状态">{{ currentLitigation.status }}</el-descriptions-item>
+      </el-descriptions>
+      <el-form :model="statusForm" label-width="100px">
+        <el-form-item label="新状态">
+          <el-select v-model="statusForm.newStatus" style="width: 100%">
+            <el-option label="已受理" value="已受理" />
+            <el-option label="审理中" value="审理中" />
+            <el-option label="已开庭" value="已开庭" />
+            <el-option label="已判决" value="已判决" />
+            <el-option label="已结案" value="已结案" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="更新说明">
+          <el-input v-model="statusForm.remark" type="textarea" :rows="3" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showUpdateStatusDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleConfirmUpdateStatus">确认更新</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { Plus, Upload } from '@element-plus/icons-vue'
 import { complaintsList, litigationList } from '@/mock'
 import { ElMessage } from 'element-plus'
 
 const activeTab = ref('list')
-const complaints = ref([...complaintsList])
-const litigations = ref([...litigationList])
+const allComplaints = ref([...complaintsList])
+const allLitigations = ref([...litigationList])
 
 const filterForm = reactive({
   type: '',
   status: ''
 })
 
+const filteredComplaints = computed(() => {
+  return allComplaints.value.filter(item => {
+    const matchType = !filterForm.type || item.type === filterForm.type
+    const matchStatus = !filterForm.status || item.status === filterForm.status
+    return matchType && matchStatus
+  })
+})
+
+const filteredLitigations = computed(() => allLitigations.value)
+
 const complaintForm = reactive({
   type: '执法行为投诉',
   title: '',
   complainant: '',
   contact: '',
+  handler: '',
   content: ''
 })
 
@@ -196,6 +337,26 @@ const processForm = reactive({
   opinion: '',
   reply: false,
   replyContent: ''
+})
+
+const transferForm = reactive({
+  toDept: '',
+  remark: ''
+})
+
+const litigationForm = reactive({
+  type: '行政复议',
+  caseId: '',
+  caseTitle: '',
+  applicant: '',
+  acceptDate: '',
+  status: '已受理',
+  remark: ''
+})
+
+const statusForm = reactive({
+  newStatus: '',
+  remark: ''
 })
 
 const activities = ref([
@@ -242,9 +403,17 @@ const activities = ref([
 ])
 
 const showCreateDialog = ref(false)
+const showViewDialog = ref(false)
 const showProcessDialog = ref(false)
+const showTransferDialog = ref(false)
 const showLitigationDialog = ref(false)
+const showLitigationViewDialog = ref(false)
+const showUpdateStatusDialog = ref(false)
 const currentComplaint = ref(null)
+const currentLitigation = ref(null)
+
+const complaints = filteredComplaints
+const litigations = filteredLitigations
 
 const statusType = (status) => {
   const map = { '已受理': 'info', '处理中': 'primary', '已办结': 'success' }
@@ -252,38 +421,145 @@ const statusType = (status) => {
 }
 
 const handleSearch = () => {
-  ElMessage.success('查询成功')
+  ElMessage.success(`查询完成，共找到 ${filteredComplaints.value.length} 条记录`)
 }
 
 const handleReset = () => {
   filterForm.type = ''
   filterForm.status = ''
+  ElMessage.info('已重置筛选条件')
+}
+
+const openCreateDialog = () => {
+  Object.assign(complaintForm, {
+    type: '执法行为投诉',
+    title: '',
+    complainant: '',
+    contact: '',
+    handler: '',
+    content: ''
+  })
+  showCreateDialog.value = true
+}
+
+const handleCreate = () => {
+  if (!complaintForm.title) {
+    ElMessage.warning('请填写标题')
+    return
+  }
+  const newComplaint = {
+    id: allComplaints.value.length + 1,
+    title: complaintForm.title,
+    complainant: complaintForm.complainant || '匿名',
+    type: complaintForm.type,
+    contact: complaintForm.contact,
+    handler: complaintForm.handler || '待分配',
+    content: complaintForm.content,
+    status: '已受理',
+    createTime: new Date().toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-')
+  }
+  allComplaints.value.unshift(newComplaint)
+  ElMessage.success('投诉举报登记成功')
+  showCreateDialog.value = false
 }
 
 const handleView = (row) => {
-  ElMessage.info(`查看投诉：${row.title}`)
+  currentComplaint.value = row
+  showViewDialog.value = true
 }
 
 const handleProcess = (row) => {
   currentComplaint.value = row
+  Object.assign(processForm, {
+    status: row.status,
+    opinion: '',
+    reply: false,
+    replyContent: ''
+  })
   showProcessDialog.value = true
 }
 
 const handleTransfer = (row) => {
-  ElMessage.info('转办功能')
-}
-
-const handleCreate = () => {
-  ElMessage.success('投诉举报登记成功')
-  showCreateDialog.value = false
+  currentComplaint.value = row
+  Object.assign(transferForm, { toDept: '', remark: '' })
+  showTransferDialog.value = true
 }
 
 const handleSubmitProcess = () => {
   if (currentComplaint.value) {
     currentComplaint.value.status = processForm.status
+    const index = allComplaints.value.findIndex(c => c.id === currentComplaint.value.id)
+    if (index !== -1) {
+      allComplaints.value[index].status = processForm.status
+    }
   }
   ElMessage.success('处理意见已提交')
   showProcessDialog.value = false
+}
+
+const handleSubmitTransfer = () => {
+  if (!transferForm.toDept) {
+    ElMessage.warning('请选择转办部门')
+    return
+  }
+  ElMessage.success(`已转办至${transferForm.toDept}`)
+  showTransferDialog.value = false
+}
+
+const openLitigationDialog = () => {
+  Object.assign(litigationForm, {
+    type: '行政复议',
+    caseId: '',
+    caseTitle: '',
+    applicant: '',
+    acceptDate: '',
+    status: '已受理',
+    remark: ''
+  })
+  showLitigationDialog.value = true
+}
+
+const handleCreateLitigation = () => {
+  if (!litigationForm.caseTitle || !litigationForm.applicant) {
+    ElMessage.warning('请填写案件名称和申请人')
+    return
+  }
+  const newLitigation = {
+    id: allLitigations.value.length + 1,
+    caseId: litigationForm.caseId || '无',
+    caseTitle: litigationForm.caseTitle,
+    applicant: litigationForm.applicant,
+    type: litigationForm.type,
+    acceptDate: litigationForm.acceptDate || new Date().toISOString().slice(0, 10),
+    status: litigationForm.status,
+    remark: litigationForm.remark
+  }
+  allLitigations.value.unshift(newLitigation)
+  ElMessage.success('复议诉讼登记成功')
+  showLitigationDialog.value = false
+}
+
+const handleViewLitigation = (row) => {
+  currentLitigation.value = row
+  showLitigationViewDialog.value = true
+}
+
+const handleUpdateLitigationStatus = (row) => {
+  currentLitigation.value = row
+  Object.assign(statusForm, { newStatus: row.status, remark: '' })
+  showUpdateStatusDialog.value = true
+}
+
+const handleConfirmUpdateStatus = () => {
+  if (currentLitigation.value && statusForm.newStatus) {
+    currentLitigation.value.status = statusForm.newStatus
+    const index = allLitigations.value.findIndex(l => l.id === currentLitigation.value.id)
+    if (index !== -1) {
+      allLitigations.value[index].status = statusForm.newStatus
+    }
+    ElMessage.success('状态已更新')
+    showUpdateStatusDialog.value = false
+  }
 }
 </script>
 

@@ -153,6 +153,33 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="showVerifyResultDialog" title="核验结果" width="500px" :close-on-click-modal="false">
+      <el-result
+        :icon="verifyResult.pass ? 'success' : 'error'"
+        :title="verifyResult.title"
+        :sub-title="verifyResult.message"
+      >
+        <template #extra v-if="verifyResult.officer">
+          <el-descriptions :column="1" border size="small">
+            <el-descriptions-item label="姓名">{{ verifyResult.officer.name }}</el-descriptions-item>
+            <el-descriptions-item label="所属部门">{{ verifyResult.officer.dept }}</el-descriptions-item>
+            <el-descriptions-item label="执法证号">{{ verifyResult.officer.certificateNo }}</el-descriptions-item>
+            <el-descriptions-item label="有效期至">{{ verifyResult.officer.expireDate }}</el-descriptions-item>
+            <el-descriptions-item label="证件状态">
+              <el-tag :type="verifyResult.officer.status === '有效' ? 'success' : 'warning'">
+                {{ verifyResult.officer.status }}
+              </el-tag>
+            </el-descriptions-item>
+          </el-descriptions>
+        </template>
+        <template #extra v-else>
+          <div class="verify-tips">
+            <p v-if="verifyResult.tips">{{ verifyResult.tips }}</p>
+          </div>
+        </template>
+      </el-result>
+    </el-dialog>
+
     <el-dialog v-model="showBenchmarkDialog" title="裁量基准查询" width="800px">
       <el-table :data="benchmarks" border>
         <el-table-column prop="violation" label="违法行为" width="180" />
@@ -182,18 +209,55 @@ const benchmarks = punishmentBenchmark
 const trendChartRef = ref(null)
 const deptChartRef = ref(null)
 const showVerifyDialog = ref(false)
+const showVerifyResultDialog = ref(false)
 const showBenchmarkDialog = ref(false)
 const verifyForm = reactive({ certificateNo: '', name: '' })
+const verifyResult = reactive({
+  pass: false,
+  title: '',
+  message: '',
+  officer: null,
+  tips: ''
+})
 
 const handleVerify = () => {
-  const officer = enforcementOfficers.find(
-    o => o.certificateNo === verifyForm.certificateNo || o.name === verifyForm.name
-  )
-  if (officer) {
-    ElMessage.success(`核验通过：${officer.name} - ${officer.dept}，证件状态：${officer.status}`)
-  } else {
-    ElMessage.error('未找到匹配的执法人员信息')
+  if (!verifyForm.certificateNo || !verifyForm.name) {
+    ElMessage.warning('请输入证件编号和姓名')
+    return
   }
+  const matchByCert = enforcementOfficers.find(o => o.certificateNo === verifyForm.certificateNo)
+  const matchByName = enforcementOfficers.find(o => o.name === verifyForm.name)
+  
+  verifyResult.pass = false
+  verifyResult.officer = null
+  verifyResult.tips = ''
+  
+  if (matchByCert && matchByName) {
+    if (matchByCert.id === matchByName.id) {
+      verifyResult.pass = true
+      verifyResult.title = '核验通过'
+      verifyResult.message = `执法人员 ${matchByCert.name} 的证件信息匹配`
+      verifyResult.officer = matchByCert
+    } else {
+      verifyResult.title = '核验失败'
+      verifyResult.message = '证件编号与姓名不匹配'
+      verifyResult.tips = `证件号 ${verifyForm.certificateNo} 对应人员为 ${matchByCert.name}，姓名 ${verifyForm.name} 对应证件号为 ${matchByName.certificateNo}`
+    }
+  } else if (matchByCert && !matchByName) {
+    verifyResult.title = '核验失败'
+    verifyResult.message = '姓名与证件不匹配'
+    verifyResult.tips = `证件号 ${verifyForm.certificateNo} 对应人员为 ${matchByCert.name}，未找到姓名为 ${verifyForm.name} 的人员`
+  } else if (!matchByCert && matchByName) {
+    verifyResult.title = '核验失败'
+    verifyResult.message = '证件编号与姓名不匹配'
+    verifyResult.tips = `姓名 ${verifyForm.name} 对应证件号为 ${matchByName.certificateNo}，未找到证件号为 ${verifyForm.certificateNo} 的人员`
+  } else {
+    verifyResult.title = '核验失败'
+    verifyResult.message = '未找到匹配的执法人员信息'
+    verifyResult.tips = `系统中不存在证件号 ${verifyForm.certificateNo} 或姓名 ${verifyForm.name} 的执法人员`
+  }
+  
+  showVerifyResultDialog.value = true
 }
 
 const initTrendChart = () => {
