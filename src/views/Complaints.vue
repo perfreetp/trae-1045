@@ -34,6 +34,11 @@
             <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
             <el-table-column prop="complainant" label="投诉人" width="100" />
             <el-table-column prop="type" label="类型" width="130" />
+            <el-table-column prop="dept" label="承办部门" width="120">
+              <template #default="{ row }">
+                {{ row.dept || '未分配' }}
+              </template>
+            </el-table-column>
             <el-table-column prop="createTime" label="登记时间" width="160" />
             <el-table-column prop="handler" label="经办人" width="100" />
             <el-table-column prop="status" label="状态" width="100">
@@ -144,7 +149,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="showViewDialog" title="投诉详情" width="700px">
+    <el-dialog v-model="showViewDialog" title="投诉详情" width="800px">
       <el-descriptions :column="2" border v-if="currentComplaint">
         <el-descriptions-item label="标题" :span="2">{{ currentComplaint.title }}</el-descriptions-item>
         <el-descriptions-item label="类型">{{ currentComplaint.type }}</el-descriptions-item>
@@ -152,11 +157,31 @@
           <el-tag :type="statusType(currentComplaint.status)">{{ currentComplaint.status }}</el-tag>
         </el-descriptions-item>
         <el-descriptions-item label="投诉人">{{ currentComplaint.complainant }}</el-descriptions-item>
+        <el-descriptions-item label="承办部门">{{ currentComplaint.dept || '未分配' }}</el-descriptions-item>
         <el-descriptions-item label="经办人">{{ currentComplaint.handler }}</el-descriptions-item>
         <el-descriptions-item label="登记时间">{{ currentComplaint.createTime }}</el-descriptions-item>
         <el-descriptions-item label="联系方式">{{ currentComplaint.contact || '无' }}</el-descriptions-item>
+        <el-descriptions-item label="处理意见" :span="2">{{ currentComplaint.opinion || '暂无' }}</el-descriptions-item>
         <el-descriptions-item label="投诉内容" :span="2">{{ currentComplaint.content }}</el-descriptions-item>
       </el-descriptions>
+      <el-divider content-position="left">处理轨迹</el-divider>
+      <el-timeline>
+        <el-timeline-item
+          v-for="(item, index) in currentTraces"
+          :key="index"
+          :timestamp="item.time"
+          :type="item.type || 'primary'"
+          size="large"
+        >
+          <el-card shadow="hover">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px">
+              <strong>{{ item.action }}</strong>
+              <el-tag size="small" type="info">{{ item.operator }}</el-tag>
+            </div>
+            <div style="color: #606266; font-size: 13px">{{ item.content }}</div>
+          </el-card>
+        </el-timeline-item>
+      </el-timeline>
     </el-dialog>
 
     <el-dialog v-model="showProcessDialog" title="处理投诉" width="600px">
@@ -307,6 +332,7 @@ import { ElMessage } from 'element-plus'
 const activeTab = ref('list')
 const allComplaints = ref([...complaintsList])
 const allLitigations = ref([...litigationList])
+const complaintTraces = ref({})
 
 const filterForm = reactive({
   type: '',
@@ -320,6 +346,35 @@ const filteredComplaints = computed(() => {
     return matchType && matchStatus
   })
 })
+
+const currentTraces = computed(() => {
+  if (!currentComplaint.value) return []
+  return complaintTraces.value[currentComplaint.value.id] || []
+})
+
+const addTrace = (complaintId, action, content, operator = '系统管理员', type = 'primary') => {
+  if (!complaintTraces.value[complaintId]) {
+    complaintTraces.value[complaintId] = []
+  }
+  const now = new Date()
+  const timeStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`
+  complaintTraces.value[complaintId].unshift({
+    action,
+    content,
+    operator,
+    time: timeStr,
+    type
+  })
+}
+
+const initComplaintTraces = () => {
+  allComplaints.value.forEach(c => {
+    if (!complaintTraces.value[c.id]) {
+      addTrace(c.id, '投诉登记', `投诉「${c.title}」已登记，投诉人：${c.complainant}，类型：${c.type}`, c.handler || '系统管理员', 'success')
+    }
+  })
+}
+initComplaintTraces()
 
 const filteredLitigations = computed(() => allLitigations.value)
 
@@ -453,12 +508,15 @@ const handleCreate = () => {
     complainant: complaintForm.complainant || '匿名',
     type: complaintForm.type,
     contact: complaintForm.contact,
+    dept: '',
     handler: complaintForm.handler || '待分配',
     content: complaintForm.content,
     status: '已受理',
+    opinion: '',
     createTime: new Date().toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-')
   }
   allComplaints.value.unshift(newComplaint)
+  addTrace(newComplaint.id, '投诉登记', `投诉「${newComplaint.title}」已登记，投诉人：${newComplaint.complainant}，类型：${newComplaint.type}`, newComplaint.handler, 'success')
   ElMessage.success('投诉举报登记成功')
   showCreateDialog.value = false
 }
@@ -487,11 +545,19 @@ const handleTransfer = (row) => {
 
 const handleSubmitProcess = () => {
   if (currentComplaint.value) {
+    const oldStatus = currentComplaint.value.status
     currentComplaint.value.status = processForm.status
+    currentComplaint.value.opinion = processForm.opinion
     const index = allComplaints.value.findIndex(c => c.id === currentComplaint.value.id)
     if (index !== -1) {
       allComplaints.value[index].status = processForm.status
+      allComplaints.value[index].opinion = processForm.opinion
     }
+    const action = processForm.status === '已办结' ? '投诉办结' : '处理投诉'
+    const type = processForm.status === '已办结' ? 'success' : 'primary'
+    addTrace(currentComplaint.value.id, action, 
+      `状态从「${oldStatus}」变更为「${processForm.status}」，处理意见：${processForm.opinion || '无'}${processForm.reply ? `，已回复：${processForm.replyContent}` : ''}`, 
+      currentComplaint.value.handler || '系统管理员', type)
   }
   ElMessage.success('处理意见已提交')
   showProcessDialog.value = false
@@ -501,6 +567,19 @@ const handleSubmitTransfer = () => {
   if (!transferForm.toDept) {
     ElMessage.warning('请选择转办部门')
     return
+  }
+  if (currentComplaint.value) {
+    const oldDept = currentComplaint.value.dept || '未分配'
+    currentComplaint.value.dept = transferForm.toDept
+    currentComplaint.value.status = '处理中'
+    const index = allComplaints.value.findIndex(c => c.id === currentComplaint.value.id)
+    if (index !== -1) {
+      allComplaints.value[index].dept = transferForm.toDept
+      allComplaints.value[index].status = '处理中'
+    }
+    addTrace(currentComplaint.value.id, '投诉转办', 
+      `从「${oldDept}」转办至「${transferForm.toDept}」，转办说明：${transferForm.remark || '无'}`, 
+      currentComplaint.value.handler || '系统管理员', 'warning')
   }
   ElMessage.success(`已转办至${transferForm.toDept}`)
   showTransferDialog.value = false

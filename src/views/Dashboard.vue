@@ -199,7 +199,8 @@
 import { ref, onMounted, reactive } from 'vue'
 import * as echarts from 'echarts'
 import { Document, Clock, CircleCheck, Warning, Calendar, Stamp, User, Files, Coin } from '@element-plus/icons-vue'
-import { dashboardStats, warningList, punishmentBenchmark, enforcementOfficers } from '@/mock'
+import { dashboardStats, warningList, punishmentBenchmark } from '@/mock'
+import { officersStore } from '@/store'
 import { ElMessage } from 'element-plus'
 
 const stats = dashboardStats
@@ -225,8 +226,8 @@ const handleVerify = () => {
     ElMessage.warning('请输入证件编号和姓名')
     return
   }
-  const matchByCert = enforcementOfficers.find(o => o.certificateNo === verifyForm.certificateNo)
-  const matchByName = enforcementOfficers.find(o => o.name === verifyForm.name)
+  const matchByCert = officersStore.value.find(o => o.certificateNo === verifyForm.certificateNo)
+  const matchByName = officersStore.value.find(o => o.name === verifyForm.name)
   
   verifyResult.pass = false
   verifyResult.officer = null

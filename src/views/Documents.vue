@@ -31,7 +31,7 @@
                 <div class="template-footer">
                   <el-button size="small" type="primary" @click="handleUseTemplate(tpl)">套用</el-button>
                   <el-button size="small" @click="handlePreview(tpl)">预览</el-button>
-                  <el-button size="small" @click="handleDownload(tpl)">下载</el-button>
+                  <el-button size="small" @click="handleDownloadTemplate(tpl)">下载</el-button>
                 </div>
               </el-card>
             </el-col>
@@ -39,7 +39,35 @@
         </el-tab-pane>
 
         <el-tab-pane label="已生成文书" name="generated">
-          <el-table :data="generatedDocs" border stripe>
+          <div class="toolbar">
+            <el-form :inline="true" :model="docFilter">
+              <el-form-item label="状态">
+                <el-select v-model="docFilter.status" placeholder="请选择" style="width: 120px" clearable>
+                  <el-option label="草稿" value="草稿" />
+                  <el-option label="待审核" value="待审核" />
+                  <el-option label="审核通过" value="审核通过" />
+                  <el-option label="已退回" value="已退回" />
+                  <el-option label="已签发" value="已签发" />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="关联案件">
+                <el-input v-model="docFilter.caseId" placeholder="请输入案件编号" style="width: 140px" clearable />
+              </el-form-item>
+              <el-form-item label="文书类型">
+                <el-select v-model="docFilter.type" placeholder="请选择" style="width: 120px" clearable>
+                  <el-option label="处罚文书" value="处罚文书" />
+                  <el-option label="笔录文书" value="笔录文书" />
+                  <el-option label="强制文书" value="强制文书" />
+                  <el-option label="通知文书" value="通知文书" />
+                </el-select>
+              </el-form-item>
+              <el-form-item>
+                <el-button type="primary" @click="handleDocSearch">查询</el-button>
+                <el-button @click="handleDocReset">重置</el-button>
+              </el-form-item>
+            </el-form>
+          </div>
+          <el-table :data="filteredDocs" border stripe>
             <el-table-column prop="name" label="文书名称" min-width="200" />
             <el-table-column prop="caseId" label="关联案件" width="140" />
             <el-table-column prop="type" label="文书类型" width="120" />
@@ -47,17 +75,19 @@
             <el-table-column prop="creator" label="生成人" width="100" />
             <el-table-column label="状态" width="100">
               <template #default="{ row }">
-                <el-tag :type="row.status === '已签发' ? 'success' : 'warning'" size="small">
+                <el-tag :type="docStatusType(row.status)" size="small">
                   {{ row.status }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="280" fixed="right">
+            <el-table-column label="操作" width="400" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click="handleViewDoc(row)">查看</el-button>
-                <el-button link type="primary" size="small" @click="handleEditDoc(row)">编辑</el-button>
-                <el-button link type="primary" size="small" @click="handleDownloadDoc(row)">下载</el-button>
-                <el-button link type="success" size="small" @click="handleSign(row)" v-if="row.status !== '已签发'">签发</el-button>
+                <el-button link type="primary" size="small" @click="handleEditDoc(row)" v-if="row.status === '草稿' || row.status === '已退回'">编辑</el-button>
+                <el-button link type="primary" size="small" @click="handleSubmitReview(row)" v-if="row.status === '草稿' || row.status === '已退回'">提交审核</el-button>
+                <el-button link type="warning" size="small" @click="handleDownloadDoc(row)">下载</el-button>
+                <el-button link type="success" size="small" @click="handleSign(row)" v-if="row.status === '审核通过'">签发</el-button>
+                <el-button link type="primary" size="small" @click="handleAudit(row)" v-if="row.status === '待审核'">审核</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -142,6 +172,35 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="showDownloadTplDialog" title="下载确认" width="500px">
+      <el-descriptions :column="1" border size="small" style="margin-bottom: 20px" v-if="currentTemplate">
+        <el-descriptions-item label="模板名称">{{ currentTemplate.name }}</el-descriptions-item>
+        <el-descriptions-item label="模板类型">{{ currentTemplate.type }}</el-descriptions-item>
+        <el-descriptions-item label="更新时间">{{ currentTemplate.updateTime }}</el-descriptions-item>
+        <el-descriptions-item label="使用次数">{{ currentTemplate.usageCount }} 次</el-descriptions-item>
+      </el-descriptions>
+      <p style="margin-bottom: 20px; color: #909399;">确认下载该文书模板文件？</p>
+      <template #footer>
+        <el-button @click="showDownloadTplDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleConfirmDownloadTpl">确认下载</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="showDownloadDocDialog" title="下载确认" width="500px">
+      <el-descriptions :column="1" border size="small" style="margin-bottom: 20px" v-if="currentDoc">
+        <el-descriptions-item label="文书名称">{{ currentDoc.name }}</el-descriptions-item>
+        <el-descriptions-item label="关联案件">{{ currentDoc.caseId || '无' }}</el-descriptions-item>
+        <el-descriptions-item label="文书类型">{{ currentDoc.type }}</el-descriptions-item>
+        <el-descriptions-item label="生成时间">{{ currentDoc.createTime }}</el-descriptions-item>
+        <el-descriptions-item label="生成人">{{ currentDoc.creator }}</el-descriptions-item>
+      </el-descriptions>
+      <p style="margin-bottom: 20px; color: #909399;">确认下载该文书？</p>
+      <template #footer>
+        <el-button @click="showDownloadDocDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleConfirmDownloadDoc">确认下载</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="showEditDialog" title="编辑文书" width="700px">
       <el-form :model="editForm" label-width="100px">
         <el-form-item label="文书名称">
@@ -185,6 +244,30 @@
       </div>
     </el-dialog>
 
+    <el-dialog v-model="showAuditDialog" title="文书审核" width="600px">
+      <el-descriptions :column="2" border size="small" style="margin-bottom: 20px" v-if="currentDoc">
+        <el-descriptions-item label="文书名称">{{ currentDoc.name }}</el-descriptions-item>
+        <el-descriptions-item label="关联案件">{{ currentDoc.caseId || '无' }}</el-descriptions-item>
+        <el-descriptions-item label="文书类型">{{ currentDoc.type }}</el-descriptions-item>
+        <el-descriptions-item label="生成人">{{ currentDoc.creator }}</el-descriptions-item>
+      </el-descriptions>
+      <el-form :model="auditForm" label-width="100px">
+        <el-form-item label="审核意见">
+          <el-radio-group v-model="auditForm.result">
+            <el-radio value="pass">审核通过</el-radio>
+            <el-radio value="reject">退回</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="审核说明">
+          <el-input v-model="auditForm.opinion" type="textarea" :rows="4" placeholder="请输入审核意见" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showAuditDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleSubmitAudit">提交审核</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="showSignDialog" title="签发文书" width="500px">
       <el-descriptions :column="1" border style="margin-bottom: 20px" v-if="currentDoc">
         <el-descriptions-item label="文书名称">{{ currentDoc.name }}</el-descriptions-item>
@@ -224,11 +307,28 @@ const filteredTemplates = computed(() => {
   )
 })
 
+const docFilter = reactive({
+  status: '',
+  caseId: '',
+  type: ''
+})
+
 const generatedDocs = ref([
   { id: 1, name: '行政处罚决定书（某某超市）', caseId: 'AJ202606001', type: '处罚文书', createTime: '2026-06-05 10:30', creator: '张三', status: '已签发', party: '某某超市有限公司', fact: '', basis: '', punishment: '' },
-  { id: 2, name: '现场检查笔录', caseId: 'AJ202606002', type: '笔录文书', createTime: '2026-06-04 15:20', creator: '李四', status: '草稿', party: '', fact: '', basis: '', punishment: '' },
-  { id: 3, name: '询问笔录', caseId: 'AJ202606001', type: '笔录文书', createTime: '2026-06-03 09:15', creator: '张三', status: '已签发', party: '', fact: '', basis: '', punishment: '' }
+  { id: 2, name: '现场检查笔录', caseId: 'AJ202606002', type: '笔录文书', createTime: '2026-06-04 15:20', creator: '李四', status: '待审核', party: '', fact: '', basis: '', punishment: '' },
+  { id: 3, name: '询问笔录', caseId: 'AJ202606001', type: '笔录文书', createTime: '2026-06-03 09:15', creator: '张三', status: '审核通过', party: '', fact: '', basis: '', punishment: '' },
+  { id: 4, name: '整改通知书', caseId: 'AJ202606003', type: '通知文书', createTime: '2026-06-02 14:00', creator: '王五', status: '草稿', party: '', fact: '', basis: '', punishment: '' },
+  { id: 5, name: '查封扣押决定书', caseId: 'AJ202605089', type: '强制文书', createTime: '2026-06-01 11:20', creator: '赵六', status: '已退回', party: '', fact: '', basis: '', punishment: '' }
 ])
+
+const filteredDocs = computed(() => {
+  return generatedDocs.value.filter(item => {
+    const matchStatus = !docFilter.status || item.status === docFilter.status
+    const matchCaseId = !docFilter.caseId || item.caseId.includes(docFilter.caseId)
+    const matchType = !docFilter.type || item.type === docFilter.type
+    return matchStatus && matchCaseId && matchType
+  })
+})
 
 const applyForm = reactive({
   templateId: '',
@@ -260,11 +360,42 @@ const signForm = reactive({
   opinion: ''
 })
 
+const auditForm = reactive({
+  result: 'pass',
+  opinion: ''
+})
+
 const showUploadDialog = ref(false)
 const showPreviewDialog = ref(false)
 const showEditDialog = ref(false)
 const showSignDialog = ref(false)
+const showAuditDialog = ref(false)
+const showDownloadTplDialog = ref(false)
+const showDownloadDocDialog = ref(false)
 const currentDoc = ref(null)
+const currentTemplate = ref(null)
+
+const docStatusType = (status) => {
+  const map = {
+    '草稿': 'info',
+    '待审核': 'warning',
+    '审核通过': 'primary',
+    '已退回': 'danger',
+    '已签发': 'success'
+  }
+  return map[status] || 'info'
+}
+
+const handleDocSearch = () => {
+  ElMessage.success(`查询完成，共找到 ${filteredDocs.value.length} 条记录`)
+}
+
+const handleDocReset = () => {
+  docFilter.status = ''
+  docFilter.caseId = ''
+  docFilter.type = ''
+  ElMessage.info('已重置筛选条件')
+}
 
 const openUploadDialog = () => {
   uploadForm.name = ''
@@ -293,12 +424,24 @@ const handlePreview = (tpl) => {
   showPreviewDialog.value = true
 }
 
-const handleDownload = (tpl) => {
-  ElMessage.success(`正在下载模板：${tpl.name}`)
+const handleDownloadTemplate = (tpl) => {
+  currentTemplate.value = tpl
+  showDownloadTplDialog.value = true
+}
+
+const handleConfirmDownloadTpl = () => {
+  ElMessage.success(`模板 ${currentTemplate.value.name} 已加入下载任务`)
+  showDownloadTplDialog.value = false
 }
 
 const handleDownloadDoc = (row) => {
-  ElMessage.success(`正在下载文书：${row.name}`)
+  currentDoc.value = row
+  showDownloadDocDialog.value = true
+}
+
+const handleConfirmDownloadDoc = () => {
+  ElMessage.success(`文书 ${currentDoc.value.name} 已加入下载任务`)
+  showDownloadDocDialog.value = false
 }
 
 const handleGenerate = () => {
@@ -380,6 +523,29 @@ const handleSaveEdit = () => {
   }
 }
 
+const handleSubmitReview = (row) => {
+  row.status = '待审核'
+  ElMessage.success('文书已提交审核')
+}
+
+const handleAudit = (row) => {
+  currentDoc.value = row
+  auditForm.result = 'pass'
+  auditForm.opinion = ''
+  showAuditDialog.value = true
+}
+
+const handleSubmitAudit = () => {
+  if (auditForm.result === 'pass') {
+    currentDoc.value.status = '审核通过'
+    ElMessage.success('审核通过')
+  } else {
+    currentDoc.value.status = '已退回'
+    ElMessage.info('文书已退回')
+  }
+  showAuditDialog.value = false
+}
+
 const handleSign = (row) => {
   currentDoc.value = row
   signForm.issuer = ''
@@ -414,6 +580,7 @@ const handleConfirmSign = () => {
 .toolbar {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   margin-bottom: 20px;
 }
 
@@ -425,7 +592,7 @@ const handleConfirmSign = () => {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 15px;
+  margin-bottom: 12px;
 }
 
 .template-icon {
@@ -434,31 +601,31 @@ const handleConfirmSign = () => {
 
 .template-body h4 {
   margin: 0 0 8px 0;
-  font-size: 15px;
+  font-size: 16px;
   color: #303133;
 }
 
 .template-meta {
+  margin: 0;
   font-size: 12px;
   color: #909399;
-  margin: 0;
 }
 
 .template-footer {
   display: flex;
   gap: 8px;
-  margin-top: 15px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #ebeef5;
 }
 
 .apply-form {
   max-width: 700px;
-  padding: 20px 0;
 }
 
 .preview-content {
   padding: 20px;
   background: #fff;
-  min-height: 500px;
-  line-height: 1.8;
+  min-height: 400px;
 }
 </style>

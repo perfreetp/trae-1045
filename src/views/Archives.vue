@@ -202,7 +202,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="showArchiveViewDialog" title="案卷详情" width="700px">
+    <el-dialog v-model="showArchiveViewDialog" title="案卷详情" width="800px">
       <el-descriptions :column="2" border v-if="currentArchive">
         <el-descriptions-item label="档号">{{ currentArchive.archiveNo }}</el-descriptions-item>
         <el-descriptions-item label="案件编号">{{ currentArchive.caseId }}</el-descriptions-item>
@@ -213,6 +213,44 @@
         <el-descriptions-item label="归档日期">{{ currentArchive.archiveDate }}</el-descriptions-item>
         <el-descriptions-item label="存放位置">{{ currentArchive.location }}</el-descriptions-item>
       </el-descriptions>
+      <el-divider content-position="left">借阅记录</el-divider>
+      <el-table :data="currentArchive?.borrowRecords || []" size="small" border v-if="currentArchive?.borrowRecords?.length > 0">
+        <el-table-column prop="borrower" label="借阅人" width="100" />
+        <el-table-column prop="purpose" label="借阅用途" min-width="150" />
+        <el-table-column prop="borrowDate" label="借阅日期" width="120" />
+        <el-table-column prop="returnDate" label="预计归还日期" width="120" />
+        <el-table-column prop="actualReturnDate" label="实际归还日期" width="120">
+          <template #default="{ row }">
+            {{ row.actualReturnDate || '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="status" label="状态" width="100">
+          <template #default="{ row }">
+            <el-tag :type="row.status === '已归还' ? 'success' : 'warning'" size="small">{{ row.status }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="100">
+          <template #default="{ row }">
+            <el-button link type="primary" size="small" @click="handleReturn(row)" v-if="row.status === '借阅中'">归还登记</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-else description="暂无借阅记录" />
+    </el-dialog>
+
+    <el-dialog v-model="showDownloadArchiveDialog" title="下载确认" width="500px">
+      <el-descriptions :column="1" border size="small" style="margin-bottom: 20px" v-if="currentArchive">
+        <el-descriptions-item label="案卷名称">{{ currentArchive.caseTitle }}</el-descriptions-item>
+        <el-descriptions-item label="档号">{{ currentArchive.archiveNo }}</el-descriptions-item>
+        <el-descriptions-item label="关联案件">{{ currentArchive.caseId }}</el-descriptions-item>
+        <el-descriptions-item label="案卷类别">{{ currentArchive.type }}</el-descriptions-item>
+        <el-descriptions-item label="归档日期">{{ currentArchive.archiveDate }}</el-descriptions-item>
+      </el-descriptions>
+      <p style="margin-bottom: 20px; color: #909399;">确认下载该案卷的电子档案材料？</p>
+      <template #footer>
+        <el-button @click="showDownloadArchiveDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleConfirmDownloadArchive">确认下载</el-button>
+      </template>
     </el-dialog>
 
     <el-dialog v-model="showBorrowDialog" title="案卷借阅" width="500px">
@@ -233,6 +271,26 @@
       <template #footer>
         <el-button @click="showBorrowDialog = false">取消</el-button>
         <el-button type="primary" @click="handleConfirmBorrow">确认借阅</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="showReturnDialog" title="归还登记" width="500px">
+      <el-descriptions :column="1" border size="small" style="margin-bottom: 20px" v-if="currentBorrowRecord">
+        <el-descriptions-item label="借阅人">{{ currentBorrowRecord.borrower }}</el-descriptions-item>
+        <el-descriptions-item label="借阅用途">{{ currentBorrowRecord.purpose }}</el-descriptions-item>
+        <el-descriptions-item label="借阅日期">{{ currentBorrowRecord.borrowDate }}</el-descriptions-item>
+      </el-descriptions>
+      <el-form :model="returnForm" label-width="100px">
+        <el-form-item label="归还日期">
+          <el-date-picker v-model="returnForm.returnDate" type="date" style="width: 100%" value-format="YYYY-MM-DD" />
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="returnForm.remark" type="textarea" :rows="2" placeholder="请输入备注（可选）" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showReturnDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleConfirmReturn">确认归还</el-button>
       </template>
     </el-dialog>
 
@@ -348,7 +406,8 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import * as echarts from 'echarts'
 import { Plus, Upload } from '@element-plus/icons-vue'
-import { dashboardStats, enforcementOfficers } from '@/mock'
+import { dashboardStats } from '@/mock'
+import { officersStore, addOfficer, updateOfficer } from '@/store'
 import { ElMessage } from 'element-plus'
 
 const activeTab = ref('statistics')
@@ -361,6 +420,8 @@ const amountChartRef = ref(null)
 const showArchiveDialog = ref(false)
 const showArchiveViewDialog = ref(false)
 const showBorrowDialog = ref(false)
+const showReturnDialog = ref(false)
+const showDownloadArchiveDialog = ref(false)
 const showOfficerDialog = ref(false)
 const showOfficerViewDialog = ref(false)
 const showOfficerEditDialog = ref(false)
@@ -386,6 +447,13 @@ const borrowForm = reactive({
   purpose: '',
   returnDate: ''
 })
+
+const returnForm = reactive({
+  returnDate: '',
+  remark: ''
+})
+
+const currentBorrowRecord = ref(null)
 
 const officerForm = reactive({
   name: '',
@@ -417,9 +485,9 @@ const currentArchive = ref(null)
 const currentOfficer = ref(null)
 
 const allArchives = ref([
-  { archiveNo: 'D-2026-001', caseId: 'AJ202605089', caseTitle: '某公司未经许可经营案', type: '行政处罚卷', archiver: '管理员', archiveDate: '2026-06-03', period: '30年', location: 'A区-3排-5号' },
-  { archiveNo: 'D-2026-002', caseId: 'AJ202605088', caseTitle: '某车辆超限运输案', type: '行政处罚卷', archiver: '管理员', archiveDate: '2026-06-02', period: '10年', location: 'A区-3排-6号' },
-  { archiveNo: 'D-2026-003', caseId: 'AJ202605087', caseTitle: '某工厂安全生产不达标案', type: '行政强制卷', archiver: '管理员', archiveDate: '2026-06-01', period: '30年', location: 'A区-3排-7号' }
+  { archiveNo: 'D-2026-001', caseId: 'AJ202605089', caseTitle: '某公司未经许可经营案', type: '行政处罚卷', archiver: '管理员', archiveDate: '2026-06-03', period: '30年', location: 'A区-3排-5号', borrowRecords: [] },
+  { archiveNo: 'D-2026-002', caseId: 'AJ202605088', caseTitle: '某车辆超限运输案', type: '行政处罚卷', archiver: '管理员', archiveDate: '2026-06-02', period: '10年', location: 'A区-3排-6号', borrowRecords: [] },
+  { archiveNo: 'D-2026-003', caseId: 'AJ202605087', caseTitle: '某工厂安全生产不达标案', type: '行政强制卷', archiver: '管理员', archiveDate: '2026-06-01', period: '30年', location: 'A区-3排-7号', borrowRecords: [] }
 ])
 
 const filteredArchives = computed(() => {
@@ -431,7 +499,7 @@ const filteredArchives = computed(() => {
   })
 })
 
-const officers = ref([...enforcementOfficers])
+const officers = officersStore
 
 const statReportData = ref([
   { dept: '市场监管局', total: 356, administrative: 156, coercive: 68, license: 42, inspection: 90, completed: 320, pending: 36, totalAmount: 1256000, avgDays: 15 },
@@ -549,7 +617,8 @@ const handleArchive = () => {
     archiver: archiveForm.archiver,
     archiveDate: new Date().toISOString().slice(0, 10),
     period: archiveForm.period,
-    location: archiveForm.location || '待分配'
+    location: archiveForm.location || '待分配',
+    borrowRecords: []
   }
   allArchives.value.unshift(newArchive)
   ElMessage.success(`案卷 ${newArchive.archiveNo} 归档成功`)
@@ -572,12 +641,49 @@ const handleConfirmBorrow = () => {
     ElMessage.warning('请填写借阅人')
     return
   }
+  if (!currentArchive.value.borrowRecords) {
+    currentArchive.value.borrowRecords = []
+  }
+  const newBorrowRecord = {
+    id: currentArchive.value.borrowRecords.length + 1,
+    borrower: borrowForm.borrower,
+    purpose: borrowForm.purpose,
+    borrowDate: new Date().toISOString().slice(0, 10),
+    returnDate: borrowForm.returnDate,
+    actualReturnDate: '',
+    status: '借阅中'
+  }
+  currentArchive.value.borrowRecords.unshift(newBorrowRecord)
   ElMessage.success(`借阅登记成功，借阅人：${borrowForm.borrower}`)
   showBorrowDialog.value = false
 }
 
+const handleReturn = (row) => {
+  currentBorrowRecord.value = row
+  returnForm.returnDate = new Date().toISOString().slice(0, 10)
+  returnForm.remark = ''
+  showReturnDialog.value = true
+}
+
+const handleConfirmReturn = () => {
+  if (!returnForm.returnDate) {
+    ElMessage.warning('请选择归还日期')
+    return
+  }
+  currentBorrowRecord.value.actualReturnDate = returnForm.returnDate
+  currentBorrowRecord.value.status = '已归还'
+  ElMessage.success('归还登记成功')
+  showReturnDialog.value = false
+}
+
 const handleDownloadArchive = (row) => {
-  ElMessage.success(`正在下载案卷：${row.caseTitle}`)
+  currentArchive.value = row
+  showDownloadArchiveDialog.value = true
+}
+
+const handleConfirmDownloadArchive = () => {
+  ElMessage.success(`案卷 ${currentArchive.value.archiveNo} 已加入下载任务`)
+  showDownloadArchiveDialog.value = false
 }
 
 const openOfficerDialog = () => {
@@ -598,7 +704,6 @@ const handleCreateOfficer = () => {
     return
   }
   const newOfficer = {
-    id: officers.value.length + 1,
     name: officerForm.name,
     dept: officerForm.dept,
     certificateNo: officerForm.certificateNo,
@@ -606,7 +711,7 @@ const handleCreateOfficer = () => {
     expireDate: officerForm.expireDate || '长期',
     phone: officerForm.phone
   }
-  officers.value.push(newOfficer)
+  addOfficer(newOfficer)
   ElMessage.success(`执法人员 ${newOfficer.name} 添加成功`)
   showOfficerDialog.value = false
 }
@@ -630,12 +735,16 @@ const handleEditOfficer = (row) => {
 }
 
 const handleSaveOfficerEdit = () => {
-  const index = officers.value.findIndex(o => o.id === officerEditForm.id)
-  if (index !== -1) {
-    Object.assign(officers.value[index], officerEditForm)
-    ElMessage.success('执法人员信息已更新')
-    showOfficerEditDialog.value = false
-  }
+  updateOfficer(officerEditForm.id, {
+    name: officerEditForm.name,
+    dept: officerEditForm.dept,
+    certificateNo: officerEditForm.certificateNo,
+    status: officerEditForm.status,
+    expireDate: officerEditForm.expireDate,
+    phone: officerEditForm.phone
+  })
+  ElMessage.success('执法人员信息已更新')
+  showOfficerEditDialog.value = false
 }
 
 const handleVerifyOfficer = (row) => {

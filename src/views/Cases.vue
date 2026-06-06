@@ -174,14 +174,24 @@
         </el-descriptions-item>
         <el-descriptions-item label="案件描述" :span="2">{{ currentCase.description || '暂无描述' }}</el-descriptions-item>
       </el-descriptions>
-      <el-divider content-position="left">案件流转记录</el-divider>
-      <el-steps :active="getStepIndex(currentCase.status)" finish-status="success" simple>
-        <el-step title="立案" :description="currentCase?.createTime || '2026-06-05'" />
-        <el-step title="调查取证" description="进行中" />
-        <el-step title="法制审核" description="待完成" />
-        <el-step title="作出决定" description="待完成" />
-        <el-step title="结案归档" description="待完成" />
-      </el-steps>
+      <el-divider content-position="left">案件流转历史</el-divider>
+      <el-timeline>
+        <el-timeline-item
+          v-for="(item, index) in currentHistory"
+          :key="index"
+          :timestamp="item.time"
+          :type="item.type || 'primary'"
+          size="large"
+        >
+          <el-card shadow="hover">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px">
+              <strong>{{ item.action }}</strong>
+              <el-tag size="small" type="info">{{ item.operator }}</el-tag>
+            </div>
+            <div style="color: #606266; font-size: 13px">{{ item.content }}</div>
+          </el-card>
+        </el-timeline-item>
+      </el-timeline>
     </el-dialog>
 
     <el-dialog v-model="showRecordDialog" title="现场检查记录" width="800px">
@@ -289,6 +299,25 @@
         <el-button type="primary" @click="handleConfirmFlow">确认流转</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="showDownloadEvidenceDialog" title="下载确认" width="500px">
+      <el-alert
+        title="确认下载以下证据文件？"
+        type="info"
+        :closable="false"
+        style="margin-bottom: 20px"
+      />
+      <el-descriptions :column="1" border>
+        <el-descriptions-item label="证据名称">{{ downloadingEvidence?.name }}</el-descriptions-item>
+        <el-descriptions-item label="证据类型">{{ downloadingEvidence?.type }}</el-descriptions-item>
+        <el-descriptions-item label="关联案件">{{ currentCase?.id }} - {{ currentCase?.title }}</el-descriptions-item>
+        <el-descriptions-item label="上传时间">{{ downloadingEvidence?.uploadTime }}</el-descriptions-item>
+      </el-descriptions>
+      <template #footer>
+        <el-button @click="showDownloadEvidenceDialog = false">取消</el-button>
+        <el-button type="primary" @click="confirmDownloadEvidence">确认下载</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -355,6 +384,8 @@ const flowForm = reactive({
 
 const caseRecords = ref({})
 const caseEvidences = ref({})
+const caseHistory = ref({})
+const downloadingEvidence = ref(null)
 
 const showDetailDialog = ref(false)
 const showRecordDialog = ref(false)
@@ -362,6 +393,7 @@ const showEvidenceDialog = ref(false)
 const showFlowDialog = ref(false)
 const showCreateDialog = ref(false)
 const showEditDialog = ref(false)
+const showDownloadEvidenceDialog = ref(false)
 const currentCase = ref(null)
 const currentCaseId = ref('')
 const currentEvidenceFileList = ref([])
@@ -377,6 +409,34 @@ const hasRecord = computed(() => {
 const currentCaseRecord = computed(() => {
   return caseRecords.value[currentCaseId.value]
 })
+
+const currentHistory = computed(() => {
+  return caseHistory.value[currentCaseId.value] || []
+})
+
+const addHistory = (caseId, action, content, operator = '系统管理员', type = 'primary') => {
+  if (!caseHistory.value[caseId]) {
+    caseHistory.value[caseId] = []
+  }
+  const now = new Date()
+  const timeStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`
+  caseHistory.value[caseId].unshift({
+    action,
+    content,
+    operator,
+    time: timeStr,
+    type
+  })
+}
+
+const initCaseHistory = () => {
+  allCases.value.forEach(c => {
+    if (!caseHistory.value[c.id]) {
+      addHistory(c.id, '案件立案', `案件「${c.title}」已立案，承办部门：${c.dept}，承办人：${c.handler}`, '系统管理员', 'success')
+    }
+  })
+}
+initCaseHistory()
 
 const getStepIndex = (status) => {
   const map = {
@@ -452,12 +512,14 @@ const handleCreate = () => {
   allCases.value.unshift(newCase)
   caseRecords.value[newCase.id] = null
   caseEvidences.value[newCase.id] = []
+  addHistory(newCase.id, '新建案件', `案件「${newCase.title}」创建成功，案件类型：${newCase.type}，承办部门：${newCase.dept}，承办人：${newCase.handler}`, '系统管理员', 'success')
   ElMessage.success(`案件 ${newCase.id} 创建成功`)
   showCreateDialog.value = false
 }
 
 const handleView = (row) => {
   currentCase.value = row
+  currentCaseId.value = row.id
   showDetailDialog.value = true
 }
 
@@ -480,6 +542,7 @@ const handleSaveEdit = () => {
   const index = allCases.value.findIndex(item => item.id === editForm.id)
   if (index !== -1) {
     Object.assign(allCases.value[index], editForm)
+    addHistory(editForm.id, '编辑案件', `案件信息已更新，案件名称：${editForm.title}，承办部门：${editForm.dept}，承办人：${editForm.handler}`, '系统管理员', 'warning')
     ElMessage.success('案件信息已更新')
     showEditDialog.value = false
   }
@@ -528,13 +591,17 @@ const handleSaveRecord = () => {
     content: recordForm.content,
     photos: [...recordForm.photos]
   }
+  addHistory(currentCaseId.value, '保存现场记录', `现场检查记录已保存，检查地点：${recordForm.location}，被检查人：${recordForm.target}，执法人员：${recordForm.officers.join('、')}`, '系统管理员', 'primary')
   ElMessage.success('现场记录已保存')
   showRecordDialog.value = false
 }
 
 const handleConfirmFlow = () => {
   if (currentCase.value) {
-    currentCase.value.status = flowForm.nextStep === '结案归档' ? '已结案' : flowForm.nextStep
+    const oldStatus = currentCase.value.status
+    const newStatus = flowForm.nextStep === '结案归档' ? '已结案' : flowForm.nextStep
+    currentCase.value.status = newStatus
+    addHistory(currentCase.value.id, '案件流转', `案件状态从「${oldStatus}」流转至「${newStatus}」，接收部门：${flowForm.receiveDept || '未指定'}，处理意见：${flowForm.opinion || '无'}`, '系统管理员', 'success')
     ElMessage.success(`案件已流转至：${flowForm.nextStep}`)
   }
   showFlowDialog.value = false
@@ -558,17 +625,27 @@ const handleEvidenceChange = (file) => {
     type: type,
     uploadTime: timeStr
   })
+  addHistory(currentCaseId.value, '上传证据', `证据「${file.name}」已上传，证据类型：${type}`, '系统管理员', 'primary')
 }
 
 const handleDeleteEvidence = (index) => {
   if (caseEvidences.value[currentCaseId.value]) {
+    const deleted = caseEvidences.value[currentCaseId.value][index]
     caseEvidences.value[currentCaseId.value].splice(index, 1)
+    addHistory(currentCaseId.value, '删除证据', `证据「${deleted.name}」已删除`, '系统管理员', 'danger')
     ElMessage.success('删除成功')
   }
 }
 
 const handleDownloadEvidence = (row) => {
-  ElMessage.info(`正在下载：${row.name}`)
+  downloadingEvidence.value = row
+  showDownloadEvidenceDialog.value = true
+}
+
+const confirmDownloadEvidence = () => {
+  showDownloadEvidenceDialog.value = false
+  ElMessage.success(`「${downloadingEvidence.value.name}」已加入下载任务`)
+  downloadingEvidence.value = null
 }
 
 const handlePicturePreview = () => {}
