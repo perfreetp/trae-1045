@@ -312,12 +312,19 @@ const initialDocs = [
   { id: 5, name: '查封扣押决定书', caseId: 'AJ202605089', type: '强制文书', createTime: '2026-06-01 11:20', creator: '赵六', status: '已退回', party: '', fact: '', basis: '', punishment: '' }
 ]
 
+const STORAGE_KEY_TEMPLATES = 'law_enforcement_templates'
+
 const storedDocs = loadFromStorage(STORAGE_KEY_DOCS)
+const storedTemplates = loadFromStorage(STORAGE_KEY_TEMPLATES)
 
 const activeTab = ref('templates')
 const searchKeyword = ref('')
-const allTemplates = ref([...documentTemplates])
+const allTemplates = ref(storedTemplates && storedTemplates.length > 0 ? storedTemplates : [...documentTemplates])
 const generatedDocs = ref(storedDocs && storedDocs.length > 0 ? storedDocs : initialDocs)
+
+watch(allTemplates, (newVal) => {
+  saveToStorage(STORAGE_KEY_TEMPLATES, newVal)
+}, { deep: true })
 
 watch(generatedDocs, (newVal) => {
   saveToStorage(STORAGE_KEY_DOCS, newVal)
@@ -465,8 +472,9 @@ const handleGenerate = () => {
     return
   }
   const tpl = allTemplates.value.find(t => t.id === applyForm.templateId)
+  const newId = generatedDocs.value.length > 0 ? Math.max(...generatedDocs.value.map(d => d.id)) + 1 : 1
   const newDoc = {
-    id: generatedDocs.value.length + 1,
+    id: newId,
     name: applyForm.docName,
     caseId: applyForm.caseId,
     type: tpl?.type || '处罚文书',
@@ -500,8 +508,9 @@ const handleUpload = () => {
     ElMessage.warning('请输入模板名称')
     return
   }
+  const newId = allTemplates.value.length > 0 ? Math.max(...allTemplates.value.map(t => t.id)) + 1 : 1
   const newTpl = {
-    id: allTemplates.value.length + 1,
+    id: newId,
     name: uploadForm.name,
     type: uploadForm.type,
     usageCount: 0,

@@ -333,15 +333,62 @@ import { saveToStorage, loadFromStorage } from '@/utils/storage'
 const STORAGE_KEY_COMPLAINTS = 'law_enforcement_complaints'
 const STORAGE_KEY_TRACES = 'law_enforcement_complaint_traces'
 const STORAGE_KEY_LITIGATIONS = 'law_enforcement_litigations'
+const STORAGE_KEY_ACTIVITIES = 'law_enforcement_activities'
 
 const storedComplaints = loadFromStorage(STORAGE_KEY_COMPLAINTS)
 const storedTraces = loadFromStorage(STORAGE_KEY_TRACES)
 const storedLitigations = loadFromStorage(STORAGE_KEY_LITIGATIONS)
+const storedActivities = loadFromStorage(STORAGE_KEY_ACTIVITIES)
+
+const initialActivities = [
+  {
+    timestamp: '2026-06-05 16:30:25',
+    title: '创建投诉记录',
+    content: '登记了一条新的投诉举报：反映执法人员态度恶劣',
+    operator: '刘主任',
+    ip: '192.168.1.100',
+    type: 'primary'
+  },
+  {
+    timestamp: '2026-06-05 15:20:10',
+    title: '案件流转',
+    content: '案件AJ202606002流转至法制审核环节',
+    operator: '李四',
+    ip: '192.168.1.105',
+    type: 'success'
+  },
+  {
+    timestamp: '2026-06-05 14:15:33',
+    title: '上传证据',
+    content: '案件AJ202606001上传了现场照片3张',
+    operator: '张三',
+    ip: '192.168.1.102',
+    type: 'warning'
+  }
+]
 
 const activeTab = ref('list')
 const allComplaints = ref(storedComplaints && storedComplaints.length > 0 ? storedComplaints : [...complaintsList])
 const allLitigations = ref(storedLitigations && storedLitigations.length > 0 ? storedLitigations : [...litigationList])
 const complaintTraces = ref(storedTraces || {})
+const activities = ref(storedActivities && storedActivities.length > 0 ? storedActivities : initialActivities)
+
+watch(activities, (newVal) => {
+  saveToStorage(STORAGE_KEY_ACTIVITIES, newVal)
+}, { deep: true })
+
+const addActivity = (title, content, operator = '系统管理员', type = 'primary') => {
+  const now = new Date()
+  const timeStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`
+  activities.value.unshift({
+    timestamp: timeStr,
+    title,
+    content,
+    operator,
+    ip: '127.0.0.1',
+    type
+  })
+}
 
 watch(allComplaints, (newVal) => {
   saveToStorage(STORAGE_KEY_COMPLAINTS, newVal)
@@ -438,49 +485,6 @@ const statusForm = reactive({
   remark: ''
 })
 
-const activities = ref([
-  {
-    timestamp: '2026-06-05 16:30:25',
-    title: '创建投诉记录',
-    content: '登记了一条新的投诉举报：反映执法人员态度恶劣',
-    operator: '刘主任',
-    ip: '192.168.1.100',
-    type: 'primary'
-  },
-  {
-    timestamp: '2026-06-05 15:20:10',
-    title: '案件流转',
-    content: '案件AJ202606002流转至法制审核环节',
-    operator: '李四',
-    ip: '192.168.1.105',
-    type: 'success'
-  },
-  {
-    timestamp: '2026-06-05 14:15:33',
-    title: '上传证据',
-    content: '案件AJ202606001上传了现场照片3张',
-    operator: '张三',
-    ip: '192.168.1.102',
-    type: ''
-  },
-  {
-    timestamp: '2026-06-05 10:30:00',
-    title: '修改案件信息',
-    content: '修改了案件AJ202606003的处罚金额',
-    operator: '王五',
-    ip: '192.168.1.103',
-    type: 'warning'
-  },
-  {
-    timestamp: '2026-06-04 17:45:20',
-    title: '文书签发',
-    content: '行政处罚决定书（某某超市）已签发',
-    operator: '李审核员',
-    ip: '192.168.1.101',
-    type: 'success'
-  }
-])
-
 const showCreateDialog = ref(false)
 const showViewDialog = ref(false)
 const showProcessDialog = ref(false)
@@ -526,8 +530,9 @@ const handleCreate = () => {
     ElMessage.warning('请填写标题')
     return
   }
+  const newId = allComplaints.value.length > 0 ? Math.max(...allComplaints.value.map(c => c.id)) + 1 : 1
   const newComplaint = {
-    id: allComplaints.value.length + 1,
+    id: newId,
     title: complaintForm.title,
     complainant: complaintForm.complainant || '匿名',
     type: complaintForm.type,
@@ -541,6 +546,7 @@ const handleCreate = () => {
   }
   allComplaints.value.unshift(newComplaint)
   addTrace(newComplaint.id, '投诉登记', `投诉「${newComplaint.title}」已登记，投诉人：${newComplaint.complainant}，类型：${newComplaint.type}`, newComplaint.handler, 'success')
+  addActivity('投诉登记', `新登记投诉「${newComplaint.title}」，投诉人：${newComplaint.complainant}，类型：${newComplaint.type}`, newComplaint.handler, 'success')
   ElMessage.success('投诉举报登记成功')
   showCreateDialog.value = false
 }
@@ -579,9 +585,9 @@ const handleSubmitProcess = () => {
     }
     const action = processForm.status === '已办结' ? '投诉办结' : '处理投诉'
     const type = processForm.status === '已办结' ? 'success' : 'primary'
-    addTrace(currentComplaint.value.id, action, 
-      `状态从「${oldStatus}」变更为「${processForm.status}」，处理意见：${processForm.opinion || '无'}${processForm.reply ? `，已回复：${processForm.replyContent}` : ''}`, 
-      currentComplaint.value.handler || '系统管理员', type)
+    const content = `投诉「${currentComplaint.value.title}」状态从「${oldStatus}」变更为「${processForm.status}」，处理意见：${processForm.opinion || '无'}${processForm.reply ? `，已回复：${processForm.replyContent}` : ''}`
+    addTrace(currentComplaint.value.id, action, content, currentComplaint.value.handler || '系统管理员', type)
+    addActivity(action, content, currentComplaint.value.handler || '系统管理员', type)
   }
   ElMessage.success('处理意见已提交')
   showProcessDialog.value = false
@@ -601,9 +607,9 @@ const handleSubmitTransfer = () => {
       allComplaints.value[index].dept = transferForm.toDept
       allComplaints.value[index].status = '处理中'
     }
-    addTrace(currentComplaint.value.id, '投诉转办', 
-      `从「${oldDept}」转办至「${transferForm.toDept}」，转办说明：${transferForm.remark || '无'}`, 
-      currentComplaint.value.handler || '系统管理员', 'warning')
+    const content = `投诉「${currentComplaint.value.title}」从「${oldDept}」转办至「${transferForm.toDept}」，转办说明：${transferForm.remark || '无'}`
+    addTrace(currentComplaint.value.id, '投诉转办', content, currentComplaint.value.handler || '系统管理员', 'warning')
+    addActivity('投诉转办', content, currentComplaint.value.handler || '系统管理员', 'warning')
   }
   ElMessage.success(`已转办至${transferForm.toDept}`)
   showTransferDialog.value = false

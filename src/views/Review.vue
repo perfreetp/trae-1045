@@ -212,10 +212,21 @@
         <el-descriptions-item label="状态">
           <el-tag :type="hearingStatusType(currentHearing.status)">{{ currentHearing.status }}</el-tag>
         </el-descriptions-item>
+        <el-descriptions-item label="通知状态">
+          <el-tag :type="currentHearing.notified ? 'success' : 'info'" size="small">
+            {{ currentHearing.notified ? '已通知' : '未通知' }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="听证参加人" :span="2" v-if="currentHearing.participants">
+          {{ currentHearing.participants }}
+        </el-descriptions-item>
+        <el-descriptions-item label="通知时间" v-if="currentHearing.notifyTime">
+          {{ currentHearing.notifyTime }}
+        </el-descriptions-item>
       </el-descriptions>
     </el-dialog>
 
-    <el-dialog v-model="showPaymentViewDialog" title="缴纳详情" width="600px">
+    <el-dialog v-model="showPaymentViewDialog" title="缴纳详情" width="650px">
       <el-descriptions :column="2" border v-if="currentPayment">
         <el-descriptions-item label="案件编号">{{ currentPayment.caseId }}</el-descriptions-item>
         <el-descriptions-item label="案件名称">{{ currentPayment.caseTitle }}</el-descriptions-item>
@@ -226,7 +237,30 @@
         <el-descriptions-item label="状态">
           <el-tag :type="paymentStatusType(currentPayment.status)">{{ currentPayment.status }}</el-tag>
         </el-descriptions-item>
+        <el-descriptions-item label="催缴状态">
+          <el-tag :type="currentPayment.urged ? 'danger' : 'info'" size="small">
+            {{ currentPayment.urged ? '已催缴' : '未催缴' }}
+          </el-tag>
+        </el-descriptions-item>
       </el-descriptions>
+      <el-divider content-position="left" v-if="currentPayment?.urgeRecords?.length > 0">催缴记录</el-divider>
+      <el-timeline v-if="currentPayment?.urgeRecords?.length > 0">
+        <el-timeline-item
+          v-for="(record, index) in currentPayment.urgeRecords"
+          :key="index"
+          :timestamp="record.time"
+          type="warning"
+          size="large"
+        >
+          <el-card shadow="hover">
+            <div style="margin-bottom: 8px">
+              <strong>催缴方式：</strong>
+              <el-tag size="small">{{ record.type === 'sms' ? '短信' : record.type === 'email' ? '邮件' : '短信+邮件' }}</el-tag>
+            </div>
+            <div style="color: #606266; font-size: 13px">{{ record.content }}</div>
+          </el-card>
+        </el-timeline-item>
+      </el-timeline>
     </el-dialog>
 
     <el-dialog v-model="showUrgeDialog" title="发送催缴通知" width="500px">
@@ -261,6 +295,8 @@
         <el-descriptions-item label="当前状态">
           <el-tag :type="rectStatusType(currentRect.status)">{{ currentRect.status }}</el-tag>
         </el-descriptions-item>
+        <el-descriptions-item label="复查日期" v-if="currentRect.verifyDate">{{ currentRect.verifyDate }}</el-descriptions-item>
+        <el-descriptions-item label="复查人员" v-if="currentRect.verifyOfficer">{{ currentRect.verifyOfficer }}</el-descriptions-item>
       </el-descriptions>
       <el-divider content-position="left">整改要求</el-divider>
       <p>{{ currentRect?.requirement }}</p>
@@ -320,13 +356,60 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, watch } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import { reviewList } from '@/mock'
 import { ElMessage } from 'element-plus'
+import { saveToStorage, loadFromStorage } from '@/utils/storage'
+
+const STORAGE_KEY_REVIEWS = 'law_enforcement_reviews'
+const STORAGE_KEY_HEARINGS = 'law_enforcement_hearings'
+const STORAGE_KEY_PAYMENTS = 'law_enforcement_payments'
+const STORAGE_KEY_RECTIFICATIONS = 'law_enforcement_rectifications'
+
+const initialHearings = [
+  { id: 1, caseId: 'AJ202606002', caseTitle: '某企业违法排放污水案', applicant: '某化工有限公司', hearingTime: '2026-06-10 09:30', hearingLocation: '市局听证室A', host: '李审核员', status: '待举行', notified: false },
+  { id: 2, caseId: 'AJ202605090', caseTitle: '某餐厅无证经营案', applicant: '某餐饮管理公司', hearingTime: '2026-06-08 14:00', hearingLocation: '市局听证室B', host: '王审核员', status: '待举行', notified: false }
+]
+
+const initialPayments = [
+  { id: 1, caseId: 'AJ202606003', caseTitle: '某工地未采取扬尘防治措施', party: '某建筑工程有限公司', amount: 10000, dueDate: '2026-06-20', paidDate: '', status: '待缴纳', urged: false, urgeRecords: [] },
+  { id: 2, caseId: 'AJ202605089', caseTitle: '某公司未经许可经营', party: '某贸易有限公司', amount: 30000, dueDate: '2026-06-15', paidDate: '2026-06-03', status: '已缴纳', urged: false, urgeRecords: [] },
+  { id: 3, caseId: 'AJ202605088', caseTitle: '某车辆超限运输', party: '王某', amount: 8000, dueDate: '2026-06-10', paidDate: '', status: '已逾期', urged: false, urgeRecords: [] }
+]
+
+const initialRectifications = [
+  { id: 1, caseId: 'AJ202606001', caseTitle: '某超市销售过期食品案', party: '某超市有限公司', requirement: '立即下架所有过期食品，建立健全食品进货查验制度', deadline: '2026-06-15', verifyDate: '', status: '整改中', report: '', verifyOfficer: '' },
+  { id: 2, caseId: 'AJ202606002', caseTitle: '某企业违法排放污水案', party: '某化工有限公司', requirement: '立即停止违法排污行为，完善污水处理设施并确保正常运行', deadline: '2026-06-20', verifyDate: '', status: '整改中', report: '', verifyOfficer: '' },
+  { id: 3, caseId: 'AJ202605086', caseTitle: '某开发商违规预售', party: '某房地产开发公司', requirement: '立即停止违规预售行为，退还已收购房款', deadline: '2026-05-30', verifyDate: '2026-06-02', status: '已完成', report: '经复查，开发商已停止违规预售行为，并已按规定退还全部已收购房款。', verifyOfficer: '执法人员' }
+]
+
+const storedReviews = loadFromStorage(STORAGE_KEY_REVIEWS)
+const storedHearings = loadFromStorage(STORAGE_KEY_HEARINGS)
+const storedPayments = loadFromStorage(STORAGE_KEY_PAYMENTS)
+const storedRectifications = loadFromStorage(STORAGE_KEY_RECTIFICATIONS)
 
 const activeTab = ref('pending')
-const pendingReviews = ref([...reviewList])
+const pendingReviews = ref(storedReviews && storedReviews.length > 0 ? storedReviews : [...reviewList])
+const hearingList = ref(storedHearings && storedHearings.length > 0 ? storedHearings : initialHearings)
+const paymentList = ref(storedPayments && storedPayments.length > 0 ? storedPayments : initialPayments)
+const rectificationList = ref(storedRectifications && storedRectifications.length > 0 ? storedRectifications : initialRectifications)
+
+watch(pendingReviews, (newVal) => {
+  saveToStorage(STORAGE_KEY_REVIEWS, newVal)
+}, { deep: true })
+
+watch(hearingList, (newVal) => {
+  saveToStorage(STORAGE_KEY_HEARINGS, newVal)
+}, { deep: true })
+
+watch(paymentList, (newVal) => {
+  saveToStorage(STORAGE_KEY_PAYMENTS, newVal)
+}, { deep: true })
+
+watch(rectificationList, (newVal) => {
+  saveToStorage(STORAGE_KEY_RECTIFICATIONS, newVal)
+}, { deep: true })
 
 const showReviewDialog = ref(false)
 const showCaseViewDialog = ref(false)
@@ -342,23 +425,6 @@ const currentCase = ref(null)
 const currentHearing = ref(null)
 const currentPayment = ref(null)
 const currentRect = ref(null)
-
-const hearingList = ref([
-  { id: 1, caseId: 'AJ202606002', caseTitle: '某企业违法排放污水案', applicant: '某化工有限公司', hearingTime: '2026-06-10 09:30', hearingLocation: '市局听证室A', host: '李审核员', status: '待举行' },
-  { id: 2, caseId: 'AJ202605090', caseTitle: '某餐厅无证经营案', applicant: '某餐饮管理公司', hearingTime: '2026-06-08 14:00', hearingLocation: '市局听证室B', host: '王审核员', status: '待举行' }
-])
-
-const paymentList = ref([
-  { id: 1, caseId: 'AJ202606003', caseTitle: '某工地未采取扬尘防治措施', party: '某建筑工程有限公司', amount: 10000, dueDate: '2026-06-20', paidDate: '', status: '待缴纳' },
-  { id: 2, caseId: 'AJ202605089', caseTitle: '某公司未经许可经营', party: '某贸易有限公司', amount: 30000, dueDate: '2026-06-15', paidDate: '2026-06-03', status: '已缴纳' },
-  { id: 3, caseId: 'AJ202605088', caseTitle: '某车辆超限运输', party: '王某', amount: 8000, dueDate: '2026-06-10', paidDate: '', status: '已逾期' }
-])
-
-const rectificationList = ref([
-  { id: 1, caseId: 'AJ202606001', caseTitle: '某超市销售过期食品案', party: '某超市有限公司', requirement: '立即下架所有过期食品，建立健全食品进货查验制度', deadline: '2026-06-15', verifyDate: '', status: '整改中', report: '' },
-  { id: 2, caseId: 'AJ202606002', caseTitle: '某企业违法排放污水案', party: '某化工有限公司', requirement: '立即停止违法排污行为，完善污水处理设施并确保正常运行', deadline: '2026-06-20', verifyDate: '', status: '整改中', report: '' },
-  { id: 3, caseId: 'AJ202605086', caseTitle: '某开发商违规预售', party: '某房地产开发公司', requirement: '立即停止违规预售行为，退还已收购房款', deadline: '2026-05-30', verifyDate: '2026-06-02', status: '已完成', report: '经复查，开发商已停止违规预售行为，并已按规定退还全部已收购房款。' }
-])
 
 const reviewForm = reactive({
   result: 'pass',
@@ -415,12 +481,23 @@ const handleViewCase = (row) => {
 }
 
 const handleSubmitReview = () => {
-  if (reviewForm.result === 'pass') {
-    ElMessage.success('审核通过')
-    currentCase.value.status = '已通过'
-  } else {
-    ElMessage.info('已退回补正')
-    currentCase.value.status = '已退回'
+  const idx = pendingReviews.value.findIndex(c => c.caseId === currentCase.value.caseId)
+  if (idx !== -1) {
+    if (reviewForm.result === 'pass') {
+      pendingReviews.value[idx].status = '已通过'
+      pendingReviews.value[idx].reviewResult = '审核通过'
+      pendingReviews.value[idx].reviewOpinion = reviewForm.opinion
+      pendingReviews.value[idx].reviewItems = reviewForm.items
+      pendingReviews.value[idx].reviewTime = new Date().toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-')
+      ElMessage.success('审核通过')
+    } else {
+      pendingReviews.value[idx].status = '已退回'
+      pendingReviews.value[idx].reviewResult = '退回补正'
+      pendingReviews.value[idx].reviewOpinion = reviewForm.opinion
+      pendingReviews.value[idx].reviewItems = reviewForm.items
+      pendingReviews.value[idx].reviewTime = new Date().toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-')
+      ElMessage.info('已退回补正')
+    }
   }
   showReviewDialog.value = false
 }
@@ -439,15 +516,19 @@ const handleCreateHearing = () => {
     'AJ202606002': '某企业违法排放污水案',
     'AJ202605090': '某餐厅无证经营案'
   }
+  const newId = hearingList.value.length > 0 ? Math.max(...hearingList.value.map(h => h.id)) + 1 : 1
   const newHearing = {
-    id: hearingList.value.length + 1,
+    id: newId,
     caseId: hearingForm.caseId,
     caseTitle: caseTitles[hearingForm.caseId] || '新案件',
     applicant: '申请人',
     hearingTime: hearingForm.time,
     hearingLocation: hearingForm.location,
     host: hearingForm.host || '未指定',
-    status: '待举行'
+    participants: hearingForm.participants || '',
+    status: '待举行',
+    notified: false,
+    createTime: new Date().toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-')
   }
   hearingList.value.unshift(newHearing)
   ElMessage.success('听证安排已创建')
@@ -465,13 +546,21 @@ const handleNotify = (row) => {
 }
 
 const handleSendNotify = () => {
+  const idx = hearingList.value.findIndex(h => h.id === currentHearing.value.id)
+  if (idx !== -1) {
+    hearingList.value[idx].notified = true
+    hearingList.value[idx].notifyTime = new Date().toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-')
+  }
   ElMessage.success('听证通知已发送')
   showNotifyDialog.value = false
 }
 
 const handleMarkPaid = (row) => {
-  row.status = '已缴纳'
-  row.paidDate = new Date().toISOString().slice(0, 10)
+  const idx = paymentList.value.findIndex(p => p.id === row.id)
+  if (idx !== -1) {
+    paymentList.value[idx].status = '已缴纳'
+    paymentList.value[idx].paidDate = new Date().toISOString().slice(0, 10)
+  }
   ElMessage.success('已标记为已缴纳')
 }
 
@@ -486,6 +575,18 @@ const handleUrge = (row) => {
 }
 
 const handleSendUrge = () => {
+  const idx = paymentList.value.findIndex(p => p.id === currentPayment.value.id)
+  if (idx !== -1) {
+    paymentList.value[idx].urged = true
+    if (!paymentList.value[idx].urgeRecords) {
+      paymentList.value[idx].urgeRecords = []
+    }
+    paymentList.value[idx].urgeRecords.push({
+      type: urgeForm.type,
+      content: urgeForm.content,
+      time: new Date().toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-')
+    })
+  }
   ElMessage.success('催缴通知已发送')
   showUrgeDialog.value = false
 }
@@ -509,11 +610,20 @@ const handleSubmitVerify = () => {
     ElMessage.warning('请填写复查日期和复查人员')
     return
   }
-  currentRect.value.verifyDate = verifyForm.date
-  if (verifyForm.result === 'pass') {
-    currentRect.value.status = '已完成'
+  const idx = rectificationList.value.findIndex(r => r.id === currentRect.value.id)
+  if (idx !== -1) {
+    rectificationList.value[idx].verifyDate = verifyForm.date
+    rectificationList.value[idx].verifyOfficer = verifyForm.officer
+    rectificationList.value[idx].verifyResult = verifyForm.result
+    rectificationList.value[idx].report = verifyForm.opinion
+    if (verifyForm.result === 'pass') {
+      rectificationList.value[idx].status = '已完成'
+    } else if (verifyForm.result === 'fail') {
+      rectificationList.value[idx].status = '逾期未改'
+    } else {
+      rectificationList.value[idx].status = '整改中'
+    }
   }
-  currentRect.value.report = verifyForm.opinion
   ElMessage.success('复查登记已提交')
   showVerifyDialog.value = false
 }
