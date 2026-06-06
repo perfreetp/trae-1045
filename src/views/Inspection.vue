@@ -292,16 +292,38 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import { inspectionPlans, enforcementOfficers } from '@/mock'
 import { ElMessage } from 'element-plus'
+import { saveToStorage, loadFromStorage } from '@/utils/storage'
+import { officersStore } from '@/store'
+
+const STORAGE_KEY_PLANS = 'law_enforcement_plans'
+const STORAGE_KEY_PLAN_TASKS = 'law_enforcement_plan_tasks'
+const STORAGE_KEY_ALL_TASKS = 'law_enforcement_all_tasks'
+
+const storedPlans = loadFromStorage(STORAGE_KEY_PLANS)
+const storedPlanTasks = loadFromStorage(STORAGE_KEY_PLAN_TASKS)
+const storedAllTasks = loadFromStorage(STORAGE_KEY_ALL_TASKS)
 
 const activeTab = ref('plans')
-const allPlans = ref([...inspectionPlans])
-const officers = enforcementOfficers
-const planTasks = ref({})
-const allTasks = ref([])
+const allPlans = ref(storedPlans && storedPlans.length > 0 ? storedPlans : [...inspectionPlans])
+const officers = officersStore
+const planTasks = ref(storedPlanTasks || {})
+const allTasks = ref(storedAllTasks || [])
+
+watch(allPlans, (newVal) => {
+  saveToStorage(STORAGE_KEY_PLANS, newVal)
+}, { deep: true })
+
+watch(planTasks, (newVal) => {
+  saveToStorage(STORAGE_KEY_PLAN_TASKS, newVal)
+}, { deep: true })
+
+watch(allTasks, (newVal) => {
+  saveToStorage(STORAGE_KEY_ALL_TASKS, newVal)
+}, { deep: true })
 
 const filterForm = reactive({
   name: '',

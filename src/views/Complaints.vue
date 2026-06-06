@@ -324,15 +324,36 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { Plus, Upload } from '@element-plus/icons-vue'
 import { complaintsList, litigationList } from '@/mock'
 import { ElMessage } from 'element-plus'
+import { saveToStorage, loadFromStorage } from '@/utils/storage'
+
+const STORAGE_KEY_COMPLAINTS = 'law_enforcement_complaints'
+const STORAGE_KEY_TRACES = 'law_enforcement_complaint_traces'
+const STORAGE_KEY_LITIGATIONS = 'law_enforcement_litigations'
+
+const storedComplaints = loadFromStorage(STORAGE_KEY_COMPLAINTS)
+const storedTraces = loadFromStorage(STORAGE_KEY_TRACES)
+const storedLitigations = loadFromStorage(STORAGE_KEY_LITIGATIONS)
 
 const activeTab = ref('list')
-const allComplaints = ref([...complaintsList])
-const allLitigations = ref([...litigationList])
-const complaintTraces = ref({})
+const allComplaints = ref(storedComplaints && storedComplaints.length > 0 ? storedComplaints : [...complaintsList])
+const allLitigations = ref(storedLitigations && storedLitigations.length > 0 ? storedLitigations : [...litigationList])
+const complaintTraces = ref(storedTraces || {})
+
+watch(allComplaints, (newVal) => {
+  saveToStorage(STORAGE_KEY_COMPLAINTS, newVal)
+}, { deep: true })
+
+watch(complaintTraces, (newVal) => {
+  saveToStorage(STORAGE_KEY_TRACES, newVal)
+}, { deep: true })
+
+watch(allLitigations, (newVal) => {
+  saveToStorage(STORAGE_KEY_LITIGATIONS, newVal)
+}, { deep: true })
 
 const filterForm = reactive({
   type: '',
@@ -374,7 +395,10 @@ const initComplaintTraces = () => {
     }
   })
 }
-initComplaintTraces()
+
+onMounted(() => {
+  initComplaintTraces()
+})
 
 const filteredLitigations = computed(() => allLitigations.value)
 

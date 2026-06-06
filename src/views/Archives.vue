@@ -239,14 +239,16 @@
     </el-dialog>
 
     <el-dialog v-model="showDownloadArchiveDialog" title="下载确认" width="500px">
-      <el-descriptions :column="1" border size="small" style="margin-bottom: 20px" v-if="currentArchive">
-        <el-descriptions-item label="案卷名称">{{ currentArchive.caseTitle }}</el-descriptions-item>
+      <el-alert title="确认下载该案卷的电子档案材料？" type="info" :closable="false" style="margin-bottom: 20px" />
+      <el-descriptions :column="1" border v-if="currentArchive">
         <el-descriptions-item label="档号">{{ currentArchive.archiveNo }}</el-descriptions-item>
+        <el-descriptions-item label="案卷名称">{{ currentArchive.caseTitle }}</el-descriptions-item>
         <el-descriptions-item label="关联案件">{{ currentArchive.caseId }}</el-descriptions-item>
         <el-descriptions-item label="案卷类别">{{ currentArchive.type }}</el-descriptions-item>
         <el-descriptions-item label="归档日期">{{ currentArchive.archiveDate }}</el-descriptions-item>
+        <el-descriptions-item label="归档人">{{ currentArchive.archiver }}</el-descriptions-item>
+        <el-descriptions-item label="保管期限">{{ currentArchive.period }}</el-descriptions-item>
       </el-descriptions>
-      <p style="margin-bottom: 20px; color: #909399;">确认下载该案卷的电子档案材料？</p>
       <template #footer>
         <el-button @click="showDownloadArchiveDialog = false">取消</el-button>
         <el-button type="primary" @click="handleConfirmDownloadArchive">确认下载</el-button>
@@ -403,12 +405,23 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import * as echarts from 'echarts'
 import { Plus, Upload } from '@element-plus/icons-vue'
 import { dashboardStats } from '@/mock'
 import { officersStore, addOfficer, updateOfficer } from '@/store'
 import { ElMessage } from 'element-plus'
+import { saveToStorage, loadFromStorage } from '@/utils/storage'
+
+const STORAGE_KEY_ARCHIVES = 'law_enforcement_archives'
+
+const initialArchives = [
+  { archiveNo: 'D-2026-001', caseId: 'AJ202605089', caseTitle: '某公司未经许可经营案', type: '行政处罚卷', archiver: '管理员', archiveDate: '2026-06-03', period: '30年', location: 'A区-3排-5号', borrowRecords: [] },
+  { archiveNo: 'D-2026-002', caseId: 'AJ202605088', caseTitle: '某车辆超限运输案', type: '行政处罚卷', archiver: '管理员', archiveDate: '2026-06-02', period: '10年', location: 'A区-3排-6号', borrowRecords: [] },
+  { archiveNo: 'D-2026-003', caseId: 'AJ202605087', caseTitle: '某工厂安全生产不达标案', type: '行政强制卷', archiver: '管理员', archiveDate: '2026-06-01', period: '30年', location: 'A区-3排-7号', borrowRecords: [] }
+]
+
+const storedArchives = loadFromStorage(STORAGE_KEY_ARCHIVES)
 
 const activeTab = ref('statistics')
 
@@ -484,11 +497,11 @@ const verifyResult = reactive({
 const currentArchive = ref(null)
 const currentOfficer = ref(null)
 
-const allArchives = ref([
-  { archiveNo: 'D-2026-001', caseId: 'AJ202605089', caseTitle: '某公司未经许可经营案', type: '行政处罚卷', archiver: '管理员', archiveDate: '2026-06-03', period: '30年', location: 'A区-3排-5号', borrowRecords: [] },
-  { archiveNo: 'D-2026-002', caseId: 'AJ202605088', caseTitle: '某车辆超限运输案', type: '行政处罚卷', archiver: '管理员', archiveDate: '2026-06-02', period: '10年', location: 'A区-3排-6号', borrowRecords: [] },
-  { archiveNo: 'D-2026-003', caseId: 'AJ202605087', caseTitle: '某工厂安全生产不达标案', type: '行政强制卷', archiver: '管理员', archiveDate: '2026-06-01', period: '30年', location: 'A区-3排-7号', borrowRecords: [] }
-])
+const allArchives = ref(storedArchives && storedArchives.length > 0 ? storedArchives : initialArchives)
+
+watch(allArchives, (newVal) => {
+  saveToStorage(STORAGE_KEY_ARCHIVES, newVal)
+}, { deep: true })
 
 const filteredArchives = computed(() => {
   return allArchives.value.filter(item => {

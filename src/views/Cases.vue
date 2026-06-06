@@ -322,13 +322,28 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { Plus, UploadFilled } from '@element-plus/icons-vue'
 import { caseList, enforcementOfficers } from '@/mock'
 import { ElMessage } from 'element-plus'
+import { saveToStorage, loadFromStorage } from '@/utils/storage'
+import { officersStore } from '@/store'
 
-const allCases = ref([...caseList])
-const officers = enforcementOfficers
+const STORAGE_KEY_CASES = 'law_enforcement_cases'
+const STORAGE_KEY_RECORDS = 'law_enforcement_case_records'
+const STORAGE_KEY_EVIDENCES = 'law_enforcement_case_evidences'
+const STORAGE_KEY_HISTORY = 'law_enforcement_case_history'
+
+const storedCases = loadFromStorage(STORAGE_KEY_CASES)
+const storedRecords = loadFromStorage(STORAGE_KEY_RECORDS)
+const storedEvidences = loadFromStorage(STORAGE_KEY_EVIDENCES)
+const storedHistory = loadFromStorage(STORAGE_KEY_HISTORY)
+
+const allCases = ref(storedCases && storedCases.length > 0 ? storedCases : [...caseList])
+const caseRecords = ref(storedRecords || {})
+const caseEvidences = ref(storedEvidences || {})
+const caseHistory = ref(storedHistory || {})
+const officers = officersStore
 
 const filterForm = reactive({
   id: '',
@@ -382,9 +397,6 @@ const flowForm = reactive({
   receiveDept: ''
 })
 
-const caseRecords = ref({})
-const caseEvidences = ref({})
-const caseHistory = ref({})
 const downloadingEvidence = ref(null)
 
 const showDetailDialog = ref(false)
@@ -414,6 +426,22 @@ const currentHistory = computed(() => {
   return caseHistory.value[currentCaseId.value] || []
 })
 
+watch(allCases, (newVal) => {
+  saveToStorage(STORAGE_KEY_CASES, newVal)
+}, { deep: true })
+
+watch(caseRecords, (newVal) => {
+  saveToStorage(STORAGE_KEY_RECORDS, newVal)
+}, { deep: true })
+
+watch(caseEvidences, (newVal) => {
+  saveToStorage(STORAGE_KEY_EVIDENCES, newVal)
+}, { deep: true })
+
+watch(caseHistory, (newVal) => {
+  saveToStorage(STORAGE_KEY_HISTORY, newVal)
+}, { deep: true })
+
 const addHistory = (caseId, action, content, operator = '系统管理员', type = 'primary') => {
   if (!caseHistory.value[caseId]) {
     caseHistory.value[caseId] = []
@@ -436,7 +464,10 @@ const initCaseHistory = () => {
     }
   })
 }
-initCaseHistory()
+
+onMounted(() => {
+  initCaseHistory()
+})
 
 const getStepIndex = (status) => {
   const map = {

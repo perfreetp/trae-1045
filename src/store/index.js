@@ -1,7 +1,15 @@
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { enforcementOfficers as initialOfficers } from '@/mock'
+import { saveToStorage, loadFromStorage } from '@/utils/storage'
 
-export const officersStore = ref([...initialOfficers])
+const STORAGE_KEY = 'law_enforcement_officers'
+
+const storedOfficers = loadFromStorage(STORAGE_KEY)
+export const officersStore = ref(storedOfficers && storedOfficers.length > 0 ? storedOfficers : [...initialOfficers])
+
+watch(officersStore, (newVal) => {
+  saveToStorage(STORAGE_KEY, newVal)
+}, { deep: true })
 
 export const addOfficer = (officer) => {
   const newId = Math.max(...officersStore.value.map(o => o.id), 0) + 1

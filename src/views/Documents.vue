@@ -173,13 +173,14 @@
     </el-dialog>
 
     <el-dialog v-model="showDownloadTplDialog" title="下载确认" width="500px">
-      <el-descriptions :column="1" border size="small" style="margin-bottom: 20px" v-if="currentTemplate">
+      <el-alert title="确认下载以下文书模板？" type="info" :closable="false" style="margin-bottom: 20px" />
+      <el-descriptions :column="1" border v-if="currentTemplate">
+        <el-descriptions-item label="模板编号">{{ `MB${String(currentTemplate.id).padStart(4, '0')}` }}</el-descriptions-item>
         <el-descriptions-item label="模板名称">{{ currentTemplate.name }}</el-descriptions-item>
         <el-descriptions-item label="模板类型">{{ currentTemplate.type }}</el-descriptions-item>
         <el-descriptions-item label="更新时间">{{ currentTemplate.updateTime }}</el-descriptions-item>
         <el-descriptions-item label="使用次数">{{ currentTemplate.usageCount }} 次</el-descriptions-item>
       </el-descriptions>
-      <p style="margin-bottom: 20px; color: #909399;">确认下载该文书模板文件？</p>
       <template #footer>
         <el-button @click="showDownloadTplDialog = false">取消</el-button>
         <el-button type="primary" @click="handleConfirmDownloadTpl">确认下载</el-button>
@@ -187,14 +188,18 @@
     </el-dialog>
 
     <el-dialog v-model="showDownloadDocDialog" title="下载确认" width="500px">
-      <el-descriptions :column="1" border size="small" style="margin-bottom: 20px" v-if="currentDoc">
+      <el-alert title="确认下载以下文书？" type="info" :closable="false" style="margin-bottom: 20px" />
+      <el-descriptions :column="1" border v-if="currentDoc">
+        <el-descriptions-item label="文书编号">{{ `WS${String(currentDoc.id).padStart(6, '0')}` }}</el-descriptions-item>
         <el-descriptions-item label="文书名称">{{ currentDoc.name }}</el-descriptions-item>
         <el-descriptions-item label="关联案件">{{ currentDoc.caseId || '无' }}</el-descriptions-item>
         <el-descriptions-item label="文书类型">{{ currentDoc.type }}</el-descriptions-item>
+        <el-descriptions-item label="文书状态">
+          <el-tag :type="docStatusType(currentDoc.status)" size="small">{{ currentDoc.status }}</el-tag>
+        </el-descriptions-item>
         <el-descriptions-item label="生成时间">{{ currentDoc.createTime }}</el-descriptions-item>
         <el-descriptions-item label="生成人">{{ currentDoc.creator }}</el-descriptions-item>
       </el-descriptions>
-      <p style="margin-bottom: 20px; color: #909399;">确认下载该文书？</p>
       <template #footer>
         <el-button @click="showDownloadDocDialog = false">取消</el-button>
         <el-button type="primary" @click="handleConfirmDownloadDoc">确认下载</el-button>
@@ -291,14 +296,32 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 import { Document, Search, Upload, UploadFilled } from '@element-plus/icons-vue'
 import { documentTemplates } from '@/mock'
 import { ElMessage } from 'element-plus'
+import { saveToStorage, loadFromStorage } from '@/utils/storage'
+
+const STORAGE_KEY_DOCS = 'law_enforcement_generated_docs'
+
+const initialDocs = [
+  { id: 1, name: '行政处罚决定书（某某超市）', caseId: 'AJ202606001', type: '处罚文书', createTime: '2026-06-05 10:30', creator: '张三', status: '已签发', party: '某某超市有限公司', fact: '', basis: '', punishment: '' },
+  { id: 2, name: '现场检查笔录', caseId: 'AJ202606002', type: '笔录文书', createTime: '2026-06-04 15:20', creator: '李四', status: '待审核', party: '', fact: '', basis: '', punishment: '' },
+  { id: 3, name: '询问笔录', caseId: 'AJ202606001', type: '笔录文书', createTime: '2026-06-03 09:15', creator: '张三', status: '审核通过', party: '', fact: '', basis: '', punishment: '' },
+  { id: 4, name: '整改通知书', caseId: 'AJ202606003', type: '通知文书', createTime: '2026-06-02 14:00', creator: '王五', status: '草稿', party: '', fact: '', basis: '', punishment: '' },
+  { id: 5, name: '查封扣押决定书', caseId: 'AJ202605089', type: '强制文书', createTime: '2026-06-01 11:20', creator: '赵六', status: '已退回', party: '', fact: '', basis: '', punishment: '' }
+]
+
+const storedDocs = loadFromStorage(STORAGE_KEY_DOCS)
 
 const activeTab = ref('templates')
 const searchKeyword = ref('')
 const allTemplates = ref([...documentTemplates])
+const generatedDocs = ref(storedDocs && storedDocs.length > 0 ? storedDocs : initialDocs)
+
+watch(generatedDocs, (newVal) => {
+  saveToStorage(STORAGE_KEY_DOCS, newVal)
+}, { deep: true })
 
 const filteredTemplates = computed(() => {
   if (!searchKeyword.value) return allTemplates.value
@@ -312,14 +335,6 @@ const docFilter = reactive({
   caseId: '',
   type: ''
 })
-
-const generatedDocs = ref([
-  { id: 1, name: '行政处罚决定书（某某超市）', caseId: 'AJ202606001', type: '处罚文书', createTime: '2026-06-05 10:30', creator: '张三', status: '已签发', party: '某某超市有限公司', fact: '', basis: '', punishment: '' },
-  { id: 2, name: '现场检查笔录', caseId: 'AJ202606002', type: '笔录文书', createTime: '2026-06-04 15:20', creator: '李四', status: '待审核', party: '', fact: '', basis: '', punishment: '' },
-  { id: 3, name: '询问笔录', caseId: 'AJ202606001', type: '笔录文书', createTime: '2026-06-03 09:15', creator: '张三', status: '审核通过', party: '', fact: '', basis: '', punishment: '' },
-  { id: 4, name: '整改通知书', caseId: 'AJ202606003', type: '通知文书', createTime: '2026-06-02 14:00', creator: '王五', status: '草稿', party: '', fact: '', basis: '', punishment: '' },
-  { id: 5, name: '查封扣押决定书', caseId: 'AJ202605089', type: '强制文书', createTime: '2026-06-01 11:20', creator: '赵六', status: '已退回', party: '', fact: '', basis: '', punishment: '' }
-])
 
 const filteredDocs = computed(() => {
   return generatedDocs.value.filter(item => {
